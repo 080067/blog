@@ -1,0 +1,11 @@
+# Cloudflare Pages 配置
+# 作用：`wrangler pages deploy` 会按这里声明的绑定，把 R2 桶挂到 Pages Functions 的 env 上，
+#      同时也让 wrangler 从仓库根目录读 functions/（避免之前"漏传 Functions"的事故）。
+
+name = "39-blog"
+compatibility_date = "2026-11-15"
+pages_build_output_dir = "./dist"
+
+[[r2_buckets]]
+binding = "DRIVE"
+bucket_name = "blog-drive"
