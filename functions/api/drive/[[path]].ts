@@ -63,6 +63,8 @@ type R2BucketLike = {
 };
 
 const MAX_UPLOAD_BYTES = 95 * 1024 * 1024; // Workers 请求体上限 100MB，留点余量
+/* 面板上显示的配额（R2 免费额度是 10GB，超出部分按量计费，这里只作占用参考） */
+const DRIVE_LIMIT_BYTES = 200 * 1024 * 1024 * 1024;
 const SYS = "_sys/";
 const META_KEY = `${SYS}meta.json`;
 const TRASH_KEY = `${SYS}trash.json`;
@@ -323,7 +325,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 				}
 				cursor = page.truncated ? page.cursor : undefined;
 			} while (cursor);
-			return json({ total, count, limit: 10 * 1024 * 1024 * 1024 });
+			return json({ total, count, limit: DRIVE_LIMIT_BYTES });
 		}
 
 		if (action === "upload" && method === "POST") {

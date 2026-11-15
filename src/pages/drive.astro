@@ -1201,7 +1201,7 @@ import "@fontsource/roboto/700.css";
 			const percent = limit ? Math.min(100, (total / limit) * 100) : 0;
 			bar.style.width = `${percent.toFixed(2)}%`;
 			bar.classList.toggle("warn", percent > 85);
-			text.innerHTML = `${fmtSize(total)} / ${fmtSize(limit || 10 * 1024 ** 3)}<br /><span>${count} 个文件</span>`;
+			text.innerHTML = `${fmtSize(total)} / ${fmtSize(limit || 200 * 1024 ** 3)}<br /><span>${count} 个文件</span>`;
 		}
 
 		renderUploads() {
