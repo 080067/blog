@@ -29,6 +29,9 @@ export default defineConfig({
 	site: "https://nihilism.cloud",
 	base: "/",
 	trailingSlash: "always",
+	// CSS / JS / 字体走阿里云 CDN 域名：命中香港节点缓存后不再跨境回源。
+	// 想关掉加速；把这一行删掉即可（页面 HTML 始终同源，接口不受影响）。
+	build: { assetsPrefix: "https://cdn.nihilism.cloud" },
 	integrations: [
 		tailwind({
 			nesting: true,

@@ -1,4 +1,4 @@
-﻿# 一键构建 + 部署到 Cloudflare Pages（39-blog）
+# 一键构建 + 部署到 Cloudflare Pages（39-blog）
 #
 # 为什么需要这个脚本：
 #   `wrangler pages deploy` 只从**当前工作目录**找 `functions/` 和 `wrangler.toml`。
@@ -33,6 +33,10 @@ try {
 	Write-Host "== 重建搜索索引 ==" -ForegroundColor Cyan
 	& (Join-Path $site "node_modules\.bin\pagefind.CMD") --site dist
 	if ($LASTEXITCODE -ne 0) { throw "pagefind 失败" }
+
+	Write-Host "== 静态资源改写走 CDN ==" -ForegroundColor Cyan
+	node scripts\cdn-rewrite.mjs dist "https://cdn.nihilism.cloud"
+	if ($LASTEXITCODE -ne 0) { throw "cdn-rewrite 失败" }
 
 	Write-Host "== 部署（cwd = 站点根，functions/ 与 wrangler.toml 都会被带上）==" -ForegroundColor Cyan
 	# 用临时 .cmd 批处理来跑：直接 `& wrangler.CMD … 2>&1` 在脚本里会被
