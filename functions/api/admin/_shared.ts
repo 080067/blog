@@ -381,7 +381,13 @@ function isSameOriginRequest(request: Request) {
 	const origin = request.headers.get("origin");
 	if (!origin) return true;
 	try {
-		return new URL(origin).origin === new URL(request.url).origin;
+		const from = new URL(origin);
+		const self = new URL(request.url);
+		if (from.origin === self.origin) return true;
+		// 经阿里云 CDN（cdn.nihilism.cloud）访问时，回源 Host 会被改写成 pages.dev，
+		// 但请求是真的从我们自己的域名发起的；Origin 来自本站域根下就放行。
+		const underRoot = (host: string) => DOMAIN_ROOTS.some((root) => host === root || host.endsWith(`.${root}`));
+		return underRoot(from.hostname);
 	} catch {
 		return false;
 	}
@@ -464,8 +470,26 @@ export async function login(request: Request, env: Env) {
 	const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
 	return json({ authenticated: true }, 200, {
 		...corsHeaders,
-		"set-cookie": "blog_admin_session=" + expires + "." + signature + "; Max-Age=604800; Path=/; HttpOnly" + secure + "; SameSite=Strict",
+		"set-cookie":
+			"blog_admin_session=" + expires + "." + signature + "; Max-Age=604800; Path=/; HttpOnly" + secure + "; SameSite=Strict" + cookieDomainOf(request),
 	});
+}
+
+const DOMAIN_ROOTS = ["nihilism.cloud"];
+
+/** 让 cookie 在主域与 cdn 子域之间共享，这样 cdn.nihilism.cloud 上也能直接用网盘/后台。 */
+function cookieDomainOf(request: Request) {
+	// 经 CDN 回源时 request.url 的 host 已被改写成 pages.dev，真实域名在 Origin 里。
+	let hostname = new URL(request.url).hostname;
+	const origin = request.headers.get("origin");
+	if (origin) {
+		try {
+			hostname = new URL(origin).hostname;
+		} catch {
+			/* 用回 request.url 的 host */
+		}
+	}
+	return DOMAIN_ROOTS.some((root) => hostname === root || hostname.endsWith(`.${root}`)) ? "; Domain=.nihilism.cloud" : "";
 }
 
 export function logout(request: Request) {
@@ -473,7 +497,7 @@ export function logout(request: Request) {
 	const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
 	return json({ authenticated: false }, 200, {
 		...corsHeaders,
-		"set-cookie": `blog_admin_session=; Max-Age=0; Path=/; HttpOnly${secure}; SameSite=Strict`,
+		"set-cookie": `blog_admin_session=; Max-Age=0; Path=/; HttpOnly${secure}; SameSite=Strict${cookieDomainOf(request)}`,
 	});
 }
 
