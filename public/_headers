@@ -4,3 +4,31 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# 带内容哈希的构建产物：永久缓存
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# 搜索索引：文件名带哈希，同样可以长期缓存
+/pagefind/*
+  Cache-Control: public, max-age=604800
+
+# 图片等静态资源：一周，配合 CDN 边缘缓存
+/images/*
+  Cache-Control: public, max-age=604800
+
+# 音频、字体、vendor 脚本
+/audio/*
+  Cache-Control: public, max-age=604800
+/vendor/*
+  Cache-Control: public, max-age=604800
+/fonts/*
+  Cache-Control: public, max-age=604800
+
+# 页面 HTML 与 API：不缓存，保证后台改完立刻生效
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+/api/*
+  Cache-Control: private, no-store
