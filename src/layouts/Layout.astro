@@ -187,6 +187,13 @@ const bannerOffset =
 	.enable-banner.is-home #page-content {
 		@apply translate-y-[var(--banner-height-extend)];
 	}
+	/* banner 用渐变而不是图片时，首页不再需要为“露出大图”而把内容整体下推：
+	   让首屏 hero 从视口顶端开始，文字/头像自然落在画面中部。 */
+	.enable-banner.is-home #page-content.banner-flat {
+		--tw-translate-y: 0px;
+		translate: 0 0;
+		transform: translate(0, 0);
+	}
 	.enable-banner #top-row {
 		@apply h-[calc(var(--banner-height-home)_-_4.5rem)] transition-all duration-300
 	}

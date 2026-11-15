@@ -9,6 +9,8 @@ export const siteConfig: SiteConfig = {
 	themeColor: { hue: 285, fixed: true },
 	banner: {
 		enable: true,
+		// 不用图片背景了：改成一层纯 CSS 的柔和渐变（浅色粉蓝+淡紫，深色墨紫蓝）
+		mode: "gradient",
 		src: "/images/banner.jpeg",
 		position: "center",
 		credit: { enable: false, text: "", url: "" },

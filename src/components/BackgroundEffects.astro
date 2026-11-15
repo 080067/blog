@@ -169,10 +169,26 @@
 		inset: 0;
 		overflow: hidden;
 		pointer-events: none;
+		/*
+		 * 参考 B 站 @__yyn__ 演示站的观感：主页不再用大图 banner，改成一层柔和渐变
+		 * （浅色 白 → 粉 / 蓝 / 淡紫 / 薄荷 晕染；深色 墨紫蓝）。因为它是 fixed 的，
+		 * 顶部到视口底部自然收进 --page-bg，滚动时也没有接缝。
+		 */
 		background:
-			radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--primary) 9%, transparent), transparent 31%),
-			radial-gradient(circle at 88% 78%, color-mix(in srgb, #8ac8e8 8%, transparent), transparent 28%);
-		opacity: 0.92;
+			radial-gradient(60rem 36rem at 6% -8%, oklch(0.93 0.06 350 / 0.9) 0%, transparent 60%),
+			radial-gradient(54rem 32rem at 92% -12%, oklch(0.93 0.055 240 / 0.92) 0%, transparent 62%),
+			radial-gradient(50rem 32rem at 84% 82%, oklch(0.94 0.05 290 / 0.75) 0%, transparent 64%),
+			radial-gradient(44rem 28rem at 8% 94%, oklch(0.95 0.05 190 / 0.7) 0%, transparent 66%),
+			linear-gradient(180deg, oklch(0.995 0.004 285) 0%, oklch(0.985 0.01 285) 46%, var(--page-bg) 92%);
+		opacity: 1;
+	}
+	.dark .ambient-background {
+		background:
+			radial-gradient(58rem 34rem at 8% -10%, oklch(0.42 0.1 320 / 0.6) 0%, transparent 60%),
+			radial-gradient(54rem 32rem at 92% -14%, oklch(0.44 0.11 250 / 0.55) 0%, transparent 62%),
+			radial-gradient(48rem 30rem at 80% 84%, oklch(0.4 0.09 290 / 0.5) 0%, transparent 64%),
+			radial-gradient(42rem 26rem at 10% 96%, oklch(0.44 0.07 200 / 0.42) 0%, transparent 66%),
+			linear-gradient(180deg, oklch(0.28 0.04 285) 0%, oklch(0.245 0.03 285) 48%, var(--page-bg) 94%);
 	}
 	.ambient-background canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; opacity: 0.78; }
 	.ambient-glow { position: absolute; width: 18rem; aspect-ratio: 1; border-radius: 50%; filter: blur(30px); opacity: 0.2; background: var(--primary); animation: ambient-drift 18s ease-in-out infinite alternate; }

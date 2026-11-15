@@ -73,10 +73,13 @@ const mainPanelTop = homeHero
 
 <!-- Banner -->
 {siteConfig.banner.enable && <div id="banner-wrapper" class={`absolute z-10 w-full transition duration-700 overflow-hidden`} style={`top: -${BANNER_HEIGHT_EXTEND}vh`}>
-    <ImageWrapper id="banner" alt="Banner image of the blog" class:list={["object-cover h-full transition duration-700 opacity-0 scale-105"]}
-                  src={siteConfig.banner.src} position={siteConfig.banner.position}
-    >
-    </ImageWrapper>
+    {siteConfig.banner.mode === "gradient"
+        ? <div id="banner" aria-hidden="true" class="h-full w-full transition duration-700 opacity-0 scale-105"></div>
+        : <ImageWrapper id="banner" alt="Banner image of the blog" class:list={["object-cover h-full transition duration-700 opacity-0 scale-105"]}
+                        src={siteConfig.banner.src} position={siteConfig.banner.position}
+        >
+        </ImageWrapper>
+    }
 </div>}
 
 <!-- Main content -->
@@ -85,7 +88,7 @@ const mainPanelTop = homeHero
     <!-- NOTE: keep every in-flow block (grid / game slot / footer) inside #page-content so the
          home-page banner offset moves them as one unit. BackToTop must stay outside it: a
          transformed ancestor would make its `position: fixed` behave like `absolute`. -->
-    <div id="page-content" class="relative max-w-[var(--page-width)] mx-auto pointer-events-auto">
+    <div id="page-content" class:list={["relative max-w-[var(--page-width)] mx-auto pointer-events-auto", siteConfig.banner.mode === "gradient" && "banner-flat"]}>
         <div id="main-grid" class:list={["transition duration-700 w-full left-0 right-0 grid grid-rows-[auto_1fr_auto] lg:grid-rows-[auto] mx-auto gap-4 px-0 md:px-4", homeHero ? "grid-cols-1 lg:grid-cols-[17.5rem_auto]" : "grid-cols-1"]}>
             <!-- Banner image credit -->
             {hasBannerCredit && <a href={siteConfig.banner.credit.url} id="banner-credit" target="_blank" rel="noopener" aria-label="Visit image source"

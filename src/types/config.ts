@@ -23,6 +23,8 @@ export type SiteConfig = {
 	};
 	banner: {
 		enable: boolean;
+		/** image：用 banner.src 的图片；gradient：用纯 CSS 渐变，不加载任何图片 */
+		mode?: "image" | "gradient";
 		src: string;
 		position?: "top" | "center" | "bottom";
 		credit: {
