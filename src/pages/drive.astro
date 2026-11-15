@@ -357,6 +357,9 @@ import "@fontsource/roboto/700.css";
 					this.state.view = view;
 					this.state.q = "";
 					(this.querySelector("[data-search]") as HTMLInputElement).value = "";
+					/* 先把高亮切过去：用户点完立刻看到「我点的是这个」，再等数据回来 */
+					this.renderSidebar();
+					this.renderCrumbs();
 					await this.refresh();
 				});
 			});
