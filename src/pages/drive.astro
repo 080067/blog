@@ -1,0 +1,429 @@
+---
+import "@fontsource/roboto/400.css";
+import "@fontsource/roboto/500.css";
+import "@fontsource/roboto/700.css";
+---
+
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="robots" content="noindex,nofollow" />
+		<link rel="icon" href="/images/avatar.svg" type="image/svg+xml" />
+		<title>我的网盘 · 39の寧靜之地</title>
+	</head>
+	<body class="drive-page" data-pagefind-ignore>
+		<main class="drive-shell">
+			<header class="drive-header">
+				<a class="drive-brand" href="/" aria-label="返回博客首页">
+					<span class="drive-brand-mark">✦</span>
+					<span><strong>我的网盘</strong><small>SHILIN'S DRIVE</small></span>
+				</a>
+				<a class="drive-back-link" href="/">返回博客 <span aria-hidden="true">↗</span></a>
+			</header>
+			<drive-app>
+				<div class="drive-loading">正在打开网盘…</div>
+			</drive-app>
+		</main>
+	</body>
+</html>
+
+<script>
+	type DriveFile = {
+		key: string;
+		name: string;
+		size: number;
+		uploaded: string;
+		type: string;
+		isImage: boolean;
+		url: string;
+		download: string;
+	};
+
+	const fmtSize = (bytes: number) => {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+		return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+	};
+
+	const fmtDate = (iso: string) => {
+		const date = new Date(iso);
+		if (Number.isNaN(date.getTime())) return "";
+		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+	};
+
+	const escapeHtml = (value: string) =>
+		value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] as string));
+
+	class DriveApp extends HTMLElement {
+		private files: DriveFile[] = [];
+		private query = "";
+		private busy = 0;
+
+		connectedCallback() {
+			this.load();
+		}
+
+		private async request(path: string, init: RequestInit = {}) {
+			const response = await fetch(path, { credentials: "same-origin", ...init });
+			if (response.status === 401) {
+				this.renderLogin();
+				return null;
+			}
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error((data as { error?: string }).error || "操作失败");
+			return data as Record<string, unknown>;
+		}
+
+		private async load() {
+			try {
+				const data = await this.request("/api/drive/list");
+				if (!data) return;
+				this.files = (data.files as DriveFile[]) || [];
+				this.renderDrive();
+				void this.refreshUsage();
+			} catch (error) {
+				this.renderError(error);
+			}
+		}
+
+		private async refreshUsage() {
+			try {
+				const data = await this.request("/api/drive/usage");
+				if (!data) return;
+				const total = Number(data.total || 0);
+				const count = Number(data.count || 0);
+				const quota = 10 * 1024 * 1024 * 1024;
+				const percent = Math.min(100, (total / quota) * 100);
+				const used = this.querySelector<HTMLElement>("[data-usage-text]");
+				const bar = this.querySelector<HTMLElement>("[data-usage-bar]");
+				if (used) used.textContent = `${fmtSize(total)} / ${fmtSize(quota)}（${count} 个文件）`;
+				if (bar) bar.style.width = `${Math.max(percent, total > 0 ? 2 : 0)}%`;
+			} catch {
+				/* 用量统计失败不影响使用 */
+			}
+		}
+
+		private renderLogin(message = "") {
+			this.innerHTML = `
+				<section class="drive-card drive-login">
+					<div class="drive-lock">🔒</div>
+					<h1>私藏小仓库</h1>
+					<p>这里存着我自己的歌和照片，用后台密码开门。</p>
+					<form data-login>
+						<input type="password" name="password" placeholder="输入密码" autocomplete="current-password" required />
+						<button type="submit">进入</button>
+					</form>
+					<p class="drive-error" data-login-error>${escapeHtml(message)}</p>
+				</section>`;
+			const form = this.querySelector<HTMLFormElement>("[data-login]");
+			form?.addEventListener("submit", async (event) => {
+				event.preventDefault();
+				const password = String(new FormData(form).get("password") || "");
+				const errorEl = this.querySelector<HTMLElement>("[data-login-error]");
+				if (errorEl) errorEl.textContent = "正在验证…";
+				try {
+					const response = await fetch("/api/admin/login", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						credentials: "same-origin",
+						body: JSON.stringify({ password }),
+					});
+					if (!response.ok) {
+						const data = await response.json().catch(() => ({}));
+						if (errorEl) errorEl.textContent = (data as { error?: string }).error || "密码不对。";
+						return;
+					}
+					await this.load();
+				} catch (error) {
+					if (errorEl) errorEl.textContent = error instanceof Error ? error.message : "登录失败。";
+				}
+			});
+		}
+
+		private renderError(error: unknown) {
+			const message = error instanceof Error ? error.message : "出错了";
+			this.innerHTML = `
+				<section class="drive-card drive-login">
+					<div class="drive-lock">🛠️</div>
+					<h1>网盘打不开</h1>
+					<p class="drive-error">${escapeHtml(message)}</p>
+					<p class="drive-hint">如果提示「还没开通 R2」，请先在 Cloudflare 后台启用 R2 并给 Pages 项目绑定 DRIVE。</p>
+				</section>`;
+		}
+
+		private renderDrive() {
+			this.innerHTML = `
+				<section class="drive-card">
+					<div class="drive-top">
+						<div class="drive-title">
+							<h1>私藏小仓库</h1>
+							<p data-usage-text>正在统计…</p>
+							<div class="drive-usage"><span data-usage-bar></span></div>
+						</div>
+						<div class="drive-actions">
+							<label class="drive-search">
+								<input type="search" placeholder="搜文件名…" data-search />
+							</label>
+							<button type="button" class="drive-primary" data-pick>＋ 上传文件</button>
+							<input type="file" multiple hidden data-input />
+						</div>
+					</div>
+
+					<div class="drive-drop" data-drop>
+						<span>把歌、照片拖到这里，或者点上面的「上传文件」</span>
+						<small>单个文件最大 95 MB</small>
+					</div>
+
+					<div class="drive-progress" data-progress hidden><span></span></div>
+					<div class="drive-list" data-list></div>
+					<p class="drive-error" data-op-error></p>
+				</section>`;
+
+			this.querySelector("[data-pick]")?.addEventListener("click", () => {
+				this.querySelector<HTMLInputElement>("[data-input]")?.click();
+			});
+			this.querySelector<HTMLInputElement>("[data-input]")?.addEventListener("change", (event) => {
+				const input = event.target as HTMLInputElement;
+				if (input.files) void this.upload([...input.files]);
+				input.value = "";
+			});
+			this.querySelector("[data-search]")?.addEventListener("input", (event) => {
+				this.query = (event.target as HTMLInputElement).value.trim().toLowerCase();
+				this.paintList();
+			});
+
+			const drop = this.querySelector<HTMLElement>("[data-drop]")!;
+			for (const type of ["dragenter", "dragover"]) {
+				drop.addEventListener(type, (event) => {
+					event.preventDefault();
+					drop.classList.add("is-over");
+				});
+			}
+			for (const type of ["dragleave", "drop"]) {
+				drop.addEventListener(type, () => drop.classList.remove("is-over"));
+			}
+			drop.addEventListener("drop", (event) => {
+				event.preventDefault();
+				const files = [...(event.dataTransfer?.files || [])];
+				if (files.length) void this.upload(files);
+			});
+
+			this.paintList();
+		}
+
+		private paintList() {
+			const list = this.querySelector<HTMLElement>("[data-list]");
+			if (!list) return;
+			const shown = this.files.filter((file) => !this.query || file.name.toLowerCase().includes(this.query));
+			if (!shown.length) {
+				list.innerHTML = `<p class="drive-empty">${this.query ? "没有匹配的文件。" : "这里还是空的，先丢点东西进来吧。"}</p>`;
+				return;
+			}
+			list.innerHTML = shown
+				.map(
+					(file) => `
+					<article class="drive-item" data-key="${escapeHtml(file.key)}">
+						<a class="drive-thumb" href="${file.url}" target="_blank" rel="noreferrer">
+							${file.isImage ? `<img src="${file.url}" alt="" loading="lazy" />` : `<span class="drive-icon">${file.name.toLowerCase().endsWith(".mp3") || file.name.toLowerCase().endsWith(".flac") ? "♪" : "📄"}</span>`}
+						</a>
+						<div class="drive-meta">
+							<strong title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</strong>
+							<small>${fmtSize(file.size)} · ${fmtDate(file.uploaded)}</small>
+						</div>
+						<div class="drive-item-actions">
+							<a href="${file.download}" download>下载</a>
+							<button type="button" data-delete="${escapeHtml(file.key)}">删除</button>
+						</div>
+					</article>`,
+				)
+				.join("");
+			list.querySelectorAll<HTMLButtonElement>("[data-delete]").forEach((button) => {
+				button.addEventListener("click", () => void this.remove(button.dataset.delete || ""));
+			});
+		}
+
+		private async remove(key: string) {
+			if (!key) return;
+			if (!confirm(`删除「${key}」？删了就找不回来了。`)) return;
+			try {
+				await this.request(`/api/drive/delete?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+				this.files = this.files.filter((file) => file.key !== key);
+				this.paintList();
+				void this.refreshUsage();
+			} catch (error) {
+				this.showError(error);
+			}
+		}
+
+		private showError(error: unknown) {
+			const el = this.querySelector<HTMLElement>("[data-op-error]");
+			if (el) el.textContent = error instanceof Error ? error.message : "操作失败";
+		}
+
+		private async upload(files: File[]) {
+			const progress = this.querySelector<HTMLElement>("[data-progress]");
+			const bar = progress?.firstElementChild as HTMLElement | null;
+			if (progress) progress.hidden = false;
+			let done = 0;
+			for (const file of files) {
+				if (file.size > 95 * 1024 * 1024) {
+					this.showError(`「${file.name}」超过 95 MB，传不上去。`);
+					continue;
+				}
+				await new Promise<void>((resolve) => {
+					const xhr = new XMLHttpRequest();
+					xhr.open("POST", `/api/drive/upload?name=${encodeURIComponent(file.name)}`);
+					xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
+					xhr.upload.onprogress = (event) => {
+						if (!event.lengthComputable || !bar) return;
+						const current = (done + event.loaded) / Math.max(1, files.reduce((sum, item) => sum + item.size, 0));
+						bar.style.width = `${Math.min(100, current * 100)}%`;
+					};
+					xhr.onload = () => {
+						done += file.size;
+						resolve();
+					};
+					xhr.onerror = () => resolve();
+					xhr.send(file);
+				});
+			}
+			if (bar) bar.style.width = "100%";
+			setTimeout(() => {
+				if (progress) progress.hidden = true;
+				if (bar) bar.style.width = "0";
+			}, 500);
+			await this.load();
+		}
+	}
+
+	if (!customElements.get("drive-app")) customElements.define("drive-app", DriveApp);
+</script>
+
+<style is:global>
+	:root {
+		--drive-bg: #f7f4fb;
+		--drive-card: rgba(255, 255, 255, 0.82);
+		--drive-text: #2c2a33;
+		--drive-muted: #7a7488;
+		--drive-line: rgba(120, 100, 160, 0.16);
+		--drive-primary: oklch(0.68 0.15 320);
+		--drive-accent: oklch(0.72 0.12 275);
+	}
+
+	* { box-sizing: border-box; }
+
+	body.drive-page {
+		margin: 0;
+		min-height: 100vh;
+		color: var(--drive-text);
+		font-family: "Roboto", system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+		background:
+			radial-gradient(60rem 40rem at 12% 8%, #ffe6f3 0%, transparent 60%),
+			radial-gradient(55rem 38rem at 88% 12%, #e6f1ff 0%, transparent 62%),
+			radial-gradient(50rem 36rem at 50% 100%, #eef0ff 0%, transparent 60%),
+			var(--drive-bg);
+	}
+
+	.drive-shell { max-width: 68rem; margin: 0 auto; padding: 1.6rem 1.1rem 4rem; }
+
+	.drive-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.4rem; }
+
+	.drive-brand { display: flex; align-items: center; gap: 0.65rem; color: inherit; text-decoration: none; }
+	.drive-brand-mark {
+		display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: 0.8rem;
+		background: linear-gradient(135deg, #ffd6ec, #d9e4ff); font-size: 1.1rem;
+	}
+	.drive-brand strong { display: block; font-size: 1.02rem; letter-spacing: 0.01em; }
+	.drive-brand small { display: block; font-size: 0.66rem; letter-spacing: 0.18em; color: var(--drive-muted); }
+	.drive-back-link { font-size: 0.85rem; color: var(--drive-muted); text-decoration: none; }
+	.drive-back-link:hover { color: var(--drive-primary); }
+
+	.drive-card {
+		background: var(--drive-card);
+		border: 1px solid rgba(255, 255, 255, 0.9);
+		border-radius: 1.4rem;
+		padding: 1.4rem;
+		backdrop-filter: blur(14px);
+		box-shadow: 0 1.2rem 3rem rgba(90, 70, 130, 0.12);
+	}
+
+	.drive-loading { padding: 2rem; color: var(--drive-muted); }
+
+	.drive-login { max-width: 26rem; margin: 3.5rem auto; text-align: center; }
+	.drive-lock { font-size: 2rem; }
+	.drive-login h1 { margin: 0.5rem 0 0.35rem; font-size: 1.4rem; }
+	.drive-login p { margin: 0 0 1rem; color: var(--drive-muted); font-size: 0.86rem; line-height: 1.6; }
+	.drive-login form { display: flex; gap: 0.5rem; }
+	.drive-login input, .drive-search input {
+		flex: 1; min-width: 0; padding: 0.62rem 0.8rem; font-size: 0.9rem; color: inherit;
+		border: 1px solid var(--drive-line); border-radius: 0.7rem; background: rgba(255, 255, 255, 0.9);
+		outline: none;
+	}
+	.drive-login input:focus, .drive-search input:focus { border-color: var(--drive-primary); }
+	.drive-login button {
+		padding: 0.62rem 1.1rem; font-size: 0.9rem; font-weight: 600; color: #fff; cursor: pointer;
+		border: 0; border-radius: 0.7rem; background: linear-gradient(135deg, var(--drive-primary), var(--drive-accent));
+	}
+
+	.drive-error { min-height: 1.1rem; margin: 0.6rem 0 0; color: #c2417a; font-size: 0.82rem; }
+	.drive-hint { font-size: 0.75rem; color: var(--drive-muted); }
+
+	.drive-top { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; justify-content: space-between; }
+	.drive-title h1 { margin: 0; font-size: 1.5rem; }
+	.drive-title p { margin: 0.35rem 0 0.5rem; font-size: 0.8rem; color: var(--drive-muted); }
+	.drive-usage { width: 12rem; height: 0.3rem; border-radius: 999px; background: rgba(120, 100, 160, 0.14); overflow: hidden; }
+	.drive-usage span { display: block; width: 0; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--drive-primary), var(--drive-accent)); transition: width 300ms; }
+
+	.drive-actions { display: flex; gap: 0.6rem; align-items: center; }
+	.drive-search input { width: 12rem; }
+	.drive-primary {
+		padding: 0.6rem 1rem; font-size: 0.86rem; font-weight: 600; color: #fff; cursor: pointer;
+		border: 0; border-radius: 0.7rem; background: linear-gradient(135deg, var(--drive-primary), var(--drive-accent));
+	}
+
+	.drive-drop {
+		display: flex; flex-direction: column; gap: 0.2rem; align-items: center; justify-content: center;
+		margin: 1.1rem 0 1rem; padding: 1.5rem 1rem; text-align: center; font-size: 0.86rem; color: var(--drive-muted);
+		border: 1.5px dashed var(--drive-line); border-radius: 1rem; transition: 200ms;
+	}
+	.drive-drop small { font-size: 0.72rem; opacity: 0.75; }
+	.drive-drop.is-over { border-color: var(--drive-primary); background: rgba(255, 214, 236, 0.4); color: var(--drive-primary); }
+
+	.drive-progress { height: 0.32rem; margin-bottom: 0.9rem; border-radius: 999px; background: rgba(120, 100, 160, 0.14); overflow: hidden; }
+	.drive-progress span { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--drive-primary), var(--drive-accent)); transition: width 200ms; }
+
+	.drive-list { display: flex; flex-direction: column; gap: 0.5rem; }
+	.drive-empty { padding: 2rem 0; text-align: center; color: var(--drive-muted); font-size: 0.88rem; }
+
+	.drive-item {
+		display: flex; align-items: center; gap: 0.85rem; padding: 0.5rem; border-radius: 0.9rem;
+		background: rgba(255, 255, 255, 0.7); border: 1px solid rgba(255, 255, 255, 0.9);
+	}
+	.drive-thumb {
+		display: grid; place-items: center; width: 3.2rem; height: 3.2rem; flex: none; overflow: hidden;
+		border-radius: 0.7rem; background: linear-gradient(135deg, #ffe9f4, #e8efff); text-decoration: none;
+	}
+	.drive-thumb img { width: 100%; height: 100%; object-fit: cover; }
+	.drive-icon { font-size: 1.2rem; }
+	.drive-meta { flex: 1; min-width: 0; }
+	.drive-meta strong { display: block; font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.drive-meta small { color: var(--drive-muted); font-size: 0.74rem; }
+	.drive-item-actions { display: flex; gap: 0.4rem; align-items: center; }
+	.drive-item-actions a, .drive-item-actions button {
+		padding: 0.35rem 0.7rem; font-size: 0.78rem; color: var(--drive-muted); text-decoration: none; cursor: pointer;
+		background: rgba(255, 255, 255, 0.9); border: 1px solid var(--drive-line); border-radius: 0.55rem;
+	}
+	.drive-item-actions a:hover { color: var(--drive-accent); border-color: var(--drive-accent); }
+	.drive-item-actions button:hover { color: #c2417a; border-color: #e9a8c6; }
+
+	@media (max-width: 640px) {
+		.drive-actions { width: 100%; }
+		.drive-search { flex: 1; }
+		.drive-search input { width: 100%; }
+		.drive-top { align-items: stretch; }
+		.drive-item-actions a, .drive-item-actions button { padding: 0.3rem 0.5rem; }
+	}
+</style>

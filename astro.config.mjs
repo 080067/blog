@@ -101,7 +101,7 @@ export default defineConfig({
 		}),
         svelte(),
 		sitemap({
-			filter: (page) => !new URL(page).pathname.startsWith("/admin/"),
+			filter: (page) => !new URL(page).pathname.startsWith("/admin/") && !new URL(page).pathname.startsWith("/drive/"),
 		}),
 	],
 	markdown: {
