@@ -1,4 +1,4 @@
-# 一键构建 + 部署到 Cloudflare Pages（39-blog）
+﻿# 一键构建 + 部署到 Cloudflare Pages（39-blog）
 #
 # 为什么需要这个脚本：
 #   `wrangler pages deploy` 只从**当前工作目录**找 `functions/` 和 `wrangler.toml`。
@@ -35,9 +35,21 @@ try {
 	if ($LASTEXITCODE -ne 0) { throw "pagefind 失败" }
 
 	Write-Host "== 部署（cwd = 站点根，functions/ 与 wrangler.toml 都会被带上）==" -ForegroundColor Cyan
-	$out = & $wrangler pages deploy "dist" --project-name=$ProjectName --branch=$Branch --commit-message $Message 2>&1
+	# 用临时 .cmd 批处理来跑：直接 `& wrangler.CMD … 2>&1` 在脚本里会被
+	# $ErrorActionPreference=Stop 和 stderr 搅在一起（出现过「静默 exit 1 无输出」），
+	# 而 Start-Process 传带空格的参数又会被拆坏，所以把完整命令写进批处理，重定向也在里面做。
+	$log = Join-Path $env:TEMP "pages-deploy.log"
+	$bat = Join-Path $env:TEMP "pages-deploy.cmd"
+	if (Test-Path $log) { Remove-Item $log -Force }
+	$lines = @(
+		"@echo off",
+		"`"$wrangler`" pages deploy dist --project-name=$ProjectName --branch=$Branch --commit-message `"$Message`" --commit-dirty=true > `"$log`" 2>&1"
+	)
+	[System.IO.File]::WriteAllLines($bat, $lines, (New-Object System.Text.UTF8Encoding($false)))
+	$proc = Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "`"$bat`"") -WorkingDirectory $site -NoNewWindow -Wait -PassThru
+	$out = if (Test-Path $log) { Get-Content $log } else { @() }
 	$out | ForEach-Object { $_ }
-	if ($LASTEXITCODE -ne 0) { throw "wrangler pages deploy 失败" }
+	if ($proc.ExitCode -ne 0) { throw "wrangler pages deploy 失败（exit $($proc.ExitCode)）" }
 	if (-not ($out -match "Uploading Functions bundle")) {
 		throw "本次部署没有包含 Functions（输出里没有 'Uploading Functions bundle'），留言板/后台会 405。请检查 functions 目录。"
 	}
