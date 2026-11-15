@@ -24,14 +24,17 @@ import { remarkExcerpt } from "./src/plugins/remark-excerpt.js";
 import { remarkReadingTime } from "./src/plugins/remark-reading-time.mjs";
 import { pluginCustomCopyButton } from "./src/plugins/expressive-code/custom-copy-button.js";
 
+// CSS / JS / 字体走阿里云 CDN 域名：命中香港节点缓存后不再跨境回源。
+// 想关掉加速：构建前设 ASSET_PREFIX=""（或在部署脚本里改），页面 HTML 始终同源，接口不受影响。
+// 本地调试（wrangler pages dev）也建议设空，否则样式会去 CDN 拉、而 CDN 上还没有这次构建的文件。
+const ASSET_PREFIX = process.env.ASSET_PREFIX ?? "https://cdn.nihilism.cloud";
+
 // https://astro.build/config
 export default defineConfig({
 	site: "https://nihilism.cloud",
 	base: "/",
 	trailingSlash: "always",
-	// CSS / JS / 字体走阿里云 CDN 域名：命中香港节点缓存后不再跨境回源。
-	// 想关掉加速；把这一行删掉即可（页面 HTML 始终同源，接口不受影响）。
-	build: { assetsPrefix: "https://cdn.nihilism.cloud" },
+	...(ASSET_PREFIX ? { build: { assetsPrefix: ASSET_PREFIX } } : {}),
 	integrations: [
 		tailwind({
 			nesting: true,
