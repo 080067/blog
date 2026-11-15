@@ -89,6 +89,7 @@ export const onRequest = async ({ request, env, params }: { request: Request; en
 	headers.set("content-length", String(object.size));
 	headers.set("cache-control", "public, max-age=300");
 	headers.set("x-content-type-options", "nosniff");
+	headers.set("accept-ranges", "bytes");
 	headers.set("content-disposition", `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(baseName(share.key))}`);
 	return new Response(object.body ?? (await object.arrayBuffer()), { headers });
 };

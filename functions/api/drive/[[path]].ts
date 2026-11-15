@@ -55,7 +55,7 @@ type R2BucketLike = {
 		delimitedPrefixes?: string[];
 	}>;
 	put(key: string, value: ArrayBuffer | ReadableStream, options?: unknown): Promise<R2ObjectLike>;
-	get(key: string): Promise<R2ObjectLike | null>;
+	get(key: string, options?: { range?: { offset?: number; length?: number } }): Promise<R2ObjectLike | null>;
 	head(key: string): Promise<R2ObjectLike | null>;
 	delete(key: string): Promise<void>;
 	createMultipartUpload(key: string, options?: unknown): Promise<R2MultipartLike>;
@@ -238,18 +238,79 @@ function streamOf(object: R2ObjectLike) {
 	return object.body ?? null;
 }
 
-async function serveObject(bucket: R2BucketLike, key: string, url: URL, { publicView = false } = {}) {
+/* 解析 Range 头，支持 bytes=0-1023 / bytes=1000- / bytes=-500 */
+function parseRange(header: string | null, size: number): { offset: number; length: number } | null | "invalid" {
+	if (!header) return null;
+	const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+	if (!match) return "invalid";
+	const [, startRaw, endRaw] = match;
+	if (!startRaw && !endRaw) return "invalid";
+	let offset: number;
+	let length: number;
+	if (!startRaw) {
+		// 后缀范围：最后 N 字节
+		const suffix = Number(endRaw);
+		if (!Number.isFinite(suffix) || suffix <= 0) return "invalid";
+		length = Math.min(suffix, size);
+		offset = size - length;
+	} else {
+		offset = Number(startRaw);
+		if (!Number.isFinite(offset) || offset >= size) return "invalid";
+		const end = endRaw ? Math.min(Number(endRaw), size - 1) : size - 1;
+		if (!Number.isFinite(end) || end < offset) return "invalid";
+		length = end - offset + 1;
+	}
+	return { offset, length };
+}
+
+async function serveObject(
+	bucket: R2BucketLike,
+	key: string,
+	url: URL,
+	{ publicView = false, rangeHeader = null }: { publicView?: boolean; rangeHeader?: string | null } = {},
+) {
+	const wantsDownload = Boolean(url.searchParams.get("download"));
+	const disposition = wantsDownload ? "attachment" : "inline";
+	const baseHeaders = () => {
+		const headers = new Headers();
+		headers.set("x-content-type-options", "nosniff");
+		headers.set("accept-ranges", "bytes");
+		// 允许同站内嵌预览
+		headers.set("content-disposition", `${disposition}; filename*=UTF-8''${encodeURIComponent(baseName(key))}`);
+		return headers;
+	};
+
+	if (rangeHeader) {
+		const head = await bucket.head(key);
+		if (!head) return json({ error: "找不到这个文件。" }, 404);
+		const range = parseRange(rangeHeader, head.size);
+		if (range === "invalid") {
+			const headers = baseHeaders();
+			headers.set("content-range", `bytes */${head.size}`);
+			return new Response(null, { status: 416, headers });
+		}
+		if (range) {
+			const part = await bucket.get(key, { range });
+			if (!part) return json({ error: "找不到这个文件。" }, 404);
+			const headers = baseHeaders();
+			headers.set("content-type", part.httpMetadata?.contentType || contentTypeFor(key));
+			headers.set("content-length", String(range.length));
+			headers.set("content-range", `bytes ${range.offset}-${range.offset + range.length - 1}/${head.size}`);
+			if (part.httpEtag) headers.set("etag", part.httpEtag);
+			headers.set("cache-control", publicView ? "public, max-age=300" : "private, max-age=86400");
+			const body = streamOf(part);
+			return new Response(body ?? (await part.arrayBuffer()), { status: 206, headers });
+		}
+	}
+
 	const object = await bucket.get(key);
 	if (!object) return json({ error: "找不到这个文件。" }, 404);
-	const headers = new Headers();
+	const headers = baseHeaders();
 	headers.set("content-type", object.httpMetadata?.contentType || contentTypeFor(key));
 	headers.set("content-length", String(object.size));
 	if (object.httpEtag) headers.set("etag", object.httpEtag);
-	headers.set("cache-control", publicView ? "public, max-age=300" : "private, max-age=0, must-revalidate");
-	headers.set("x-content-type-options", "nosniff");
-	// 允许同站内嵌预览（PDF / 视频 range 请求由 R2 + Workers 自动处理）
-	const disposition = url.searchParams.get("download") ? "attachment" : "inline";
-	headers.set("content-disposition", `${disposition}; filename*=UTF-8''${encodeURIComponent(baseName(key))}`);
+	// 浏览器缓存一天：同一张图、同一首歌再点开就不用重新走网络了
+	headers.set("cache-control", publicView ? "public, max-age=300" : "private, max-age=86400");
 	const body = streamOf(object);
 	return new Response(body ?? (await object.arrayBuffer()), { headers });
 }
@@ -307,7 +368,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 		if (action === "file" && method === "GET") {
 			const key = safeKey(url.searchParams.get("key"));
 			if (!key) return json({ error: "文件名不合法。" }, 400);
-			return serveObject(bucket, key, url);
+			return serveObject(bucket, key, url, { rangeHeader: request.headers.get("range") });
 		}
 
 		if (action === "usage" && method === "GET") {
