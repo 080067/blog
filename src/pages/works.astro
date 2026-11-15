@@ -1,0 +1,47 @@
+---
+import { Icon } from "astro-icon/components";
+import MainGridLayout from "../layouts/MainGridLayout.astro";
+
+const works = [
+	{ title: "GitHub", kind: "OPEN SOURCE", description: "我正在学习、尝试和公开的代码，会陆续整理到这里。", href: "https://github.com/080067", icon: "fa6-brands:github", external: true },
+	{ title: "软件学习笔记", kind: "NOTES", description: "把遇见的问题、做过的尝试和最终理解，写成以后也能读懂的笔记。", href: "/archive/", icon: "material-symbols:code-rounded", external: false },
+	{ title: "39の寧靜之地", kind: "THIS SITE", description: "一个仍在生长的个人空间：用文字安放情绪，用页面保存此刻。", href: "/", icon: "material-symbols:nightlight-rounded", external: false },
+];
+---
+
+<MainGridLayout title="作品集" description="Shilin 的软件学习与个人创作">
+	<div class="works-page page-card">
+		<header class="page-heading"><p>SELECTED WORKS</p><h1>正在慢慢完成的事</h1><span>作品不一定要立刻完美，重要的是它们正在发生。</span></header>
+		<div class="works-grid">
+			{works.map((work, index) => <a class="work-card" href={work.href} target={work.external ? "_blank" : undefined} rel={work.external ? "noopener noreferrer" : undefined}>
+				<span class="work-number">0{index + 1}</span><Icon class="work-icon" name={work.icon} />
+				<p>{work.kind}</p><h2>{work.title}</h2><span class="work-description">{work.description}</span>
+				<span class="work-link">{work.external ? "前往查看" : "继续阅读"} <Icon name="material-symbols:arrow-forward-rounded" /></span>
+			</a>)}
+		</div>
+		<p class="page-note"><Icon name="material-symbols:auto-awesome-rounded" /> 这里会随着新的项目和想法持续更新。</p>
+	</div>
+</MainGridLayout>
+
+<style>
+	.works-page { width: 100%; max-width: 68rem; margin: 0 auto; color: var(--deep-text); }
+	.page-heading { padding: .8rem .3rem 1.5rem; border-bottom: 1px dashed color-mix(in srgb, var(--deep-text) 16%, transparent); }
+	.page-heading p { margin: 0; color: var(--primary); font-size: .68rem; font-weight: 850; letter-spacing: .12em; }
+	.page-heading h1 { margin: .35rem 0 .5rem; font-size: clamp(2.2rem, 6vw, 3.6rem); letter-spacing: -.055em; line-height: 1.05; }
+	.page-heading span { color: color-mix(in srgb, var(--deep-text) 58%, transparent); font-size: .82rem; }
+	.works-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .95rem; margin-top: 1.2rem; }
+	.work-card { position: relative; display: flex; flex-direction: column; min-height: 17rem; padding: 1.25rem; overflow: hidden; border: 1px solid color-mix(in srgb, var(--deep-text) 11%, transparent); border-radius: 1.1rem; color: inherit; background: color-mix(in srgb, var(--card-bg) 72%, transparent); box-shadow: 0 .7rem 2rem color-mix(in srgb, var(--deep-text) 5%, transparent); text-decoration: none; transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease; }
+	.work-card::before { position: absolute; top: -4rem; right: -3rem; width: 12rem; height: 12rem; border-radius: 50%; background: linear-gradient(145deg, color-mix(in srgb, var(--primary) 20%, transparent), #a6d7ff24); content: ""; filter: blur(12px); }
+	.work-card:hover { transform: translateY(-5px); border-color: color-mix(in srgb, var(--primary) 35%, transparent); box-shadow: 0 1.2rem 2.8rem color-mix(in srgb, var(--primary) 12%, transparent); }
+	.work-number, .work-card p { position: relative; z-index: 1; color: color-mix(in srgb, var(--primary) 75%, var(--deep-text)); font-size: .66rem; font-weight: 850; letter-spacing: .1em; }
+	.work-icon { position: relative; z-index: 1; width: 2rem; height: 2rem; margin-top: 1.8rem; color: var(--primary); }
+	.work-card p { margin: 1rem 0 .3rem; }
+	.work-card h2 { position: relative; z-index: 1; margin: 0; font-size: 1.25rem; }
+	.work-description { position: relative; z-index: 1; margin-top: .6rem; color: color-mix(in srgb, var(--deep-text) 61%, transparent); font-size: .78rem; line-height: 1.7; }
+	.work-link { display: inline-flex; align-items: center; gap: .25rem; margin-top: auto; padding-top: 1.4rem; color: var(--primary); font-size: .72rem; font-weight: 800; }
+	.work-link :global(svg) { width: .95rem; height: .95rem; transition: transform 180ms ease; }
+	.work-card:hover .work-link :global(svg) { transform: translateX(3px); }
+	.page-note { display: flex; align-items: center; justify-content: center; gap: .4rem; margin: 1.2rem 0 0; color: color-mix(in srgb, var(--deep-text) 55%, transparent); font-size: .75rem; }
+	.page-note :global(svg) { color: var(--primary); }
+	@media (max-width: 720px) { .works-grid { grid-template-columns: 1fr; } .work-card { min-height: 13rem; } }
+</style>

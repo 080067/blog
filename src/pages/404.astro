@@ -1,0 +1,100 @@
+---
+import { Icon } from "astro-icon/components";
+import MainGridLayout from "../layouts/MainGridLayout.astro";
+---
+
+<MainGridLayout title="页面走丢了" description="这个页面好像不在这里。">
+	<div class="not-found page-card">
+		<p class="not-found-kicker">LOST IN THE VOID</p>
+		<h1 class="not-found-code">404</h1>
+		<h2 class="not-found-title">这一页好像走丢了</h2>
+		<p class="not-found-text">它可能被移动、改名，或者从来没有存在过。<br />不如回到有灯的地方，再慢慢找找看。</p>
+		<div class="not-found-actions">
+			<a class="not-found-button primary" href="/"><Icon name="material-symbols:home-rounded" />回到首页</a>
+			<a class="not-found-button" href="/archive/"><Icon name="material-symbols:article-outline-rounded" />看看文章</a>
+			<a class="not-found-button" href="/contact/"><Icon name="material-symbols:mail-outline-rounded" />联系我</a>
+		</div>
+	</div>
+</MainGridLayout>
+
+<style>
+	.not-found {
+		width: 100%;
+		max-width: 44rem;
+		margin: 0 auto;
+		color: var(--deep-text);
+		text-align: center;
+	}
+
+	.not-found-kicker {
+		margin: 0;
+		color: var(--primary);
+		font-size: 0.68rem;
+		font-weight: 850;
+		letter-spacing: 0.18em;
+	}
+
+	.not-found-code {
+		margin: 0.4rem 0 0;
+		background: linear-gradient(120deg, var(--primary), color-mix(in srgb, #a6d7ff 70%, var(--primary)));
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+		font-size: clamp(4.5rem, 16vw, 8rem);
+		font-weight: 900;
+		letter-spacing: -0.06em;
+		line-height: 1;
+	}
+
+	.not-found-title {
+		margin: 0.6rem 0 0;
+		font-size: 1.35rem;
+		font-weight: 850;
+	}
+
+	.not-found-text {
+		margin: 0.6rem 0 0;
+		color: color-mix(in srgb, var(--deep-text) 58%, transparent);
+		font-size: 0.85rem;
+		line-height: 1.85;
+	}
+
+	.not-found-actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.55rem;
+		margin-top: 1.5rem;
+	}
+
+	.not-found-button {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.55rem 1rem;
+		border: 1px solid color-mix(in srgb, var(--deep-text) 12%, transparent);
+		border-radius: 999px;
+		color: var(--deep-text);
+		background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+		font-size: 0.78rem;
+		font-weight: 700;
+		text-decoration: none;
+		transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+	}
+
+	.not-found-button:hover {
+		transform: translateY(-2px);
+		border-color: color-mix(in srgb, var(--primary) 36%, transparent);
+	}
+
+	.not-found-button.primary {
+		border-color: transparent;
+		color: white;
+		background: var(--primary);
+	}
+
+	.not-found-button :global(svg) {
+		width: 1rem;
+		height: 1rem;
+	}
+</style>

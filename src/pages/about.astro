@@ -1,0 +1,91 @@
+---
+import { getCollection } from "astro:content";
+import { Icon } from "astro-icon/components";
+import ImageWrapper from "@components/misc/ImageWrapper.astro";
+import MainGridLayout from "../layouts/MainGridLayout.astro";
+import { profileConfig } from "../config";
+
+const posts = await getCollection("posts", ({ data }) => !data.draft && data.hidden !== true);
+const tags = new Set(posts.flatMap(({ data }) => data.tags ?? []));
+const categories = new Set(posts.map(({ data }) => data.category).filter(Boolean));
+
+const interests = [
+	{ icon: "material-symbols:code-rounded", label: "软件", title: "把想法写成可以运行的东西", text: "还在学习，也愿意为每一次报错、每一个小功能和每一点进步认真停留。" },
+	{ icon: "material-symbols:movie-outline-rounded", label: "ACG", title: "在故事里短暂地远行", text: "喜欢动画、游戏和音乐，也会记下那些忽然击中自己的台词与画面。" },
+	{ icon: "material-symbols:edit-note-rounded", label: "记录", title: "给生活留下一点回声", text: "不急着把一切说清楚；先写下来，让此刻有一个可以回来的地方。" },
+];
+---
+
+<MainGridLayout title={`关于 ${profileConfig.name}`} description="Shilin 的个人介绍">
+	<div class="about-page page-card">
+		<section class="about-intro" aria-labelledby="about-title">
+			<div class="portrait-column">
+				<div class="portrait-frame"><ImageWrapper src={profileConfig.avatar || ""} alt={`${profileConfig.name} 的头像`} /></div>
+				<span class="online-status"><i></i> 正在写下新的东西</span>
+			</div>
+			<div class="about-copy">
+				<p class="eyebrow"><Icon name="material-symbols:auto-awesome-rounded" /> ABOUT ME · 01</p>
+				<h1 id="about-title">你好，我是 <span>Shilin</span></h1>
+				<p class="lead">一个在洛阳生活的学生，也是一名软件学习者。这里没有标准答案，只有一些关于代码、ACG、日常和自我对话的碎片。</p>
+				<p>我喜欢把难以言说的情绪换成文字，把模糊的念头做成能运行的小东西。即使偶尔觉得世界没有固定的意义，也仍想为自己在意的事，留下可以回看的痕迹。</p>
+				<div class="details" aria-label="个人档案">
+					<span><Icon name="material-symbols:location-on-rounded" />所在地 <b>洛阳</b></span>
+					<span><Icon name="material-symbols:computer-outline-rounded" />方向 <b>软件</b></span>
+					<span><Icon name="material-symbols:interests-rounded" />热爱 <b>ACG、音乐与记录</b></span>
+				</div>
+				<div class="facts"><span><strong>{posts.length}</strong> 篇文章</span><span><strong>{categories.size}</strong> 个分类</span><span><strong>{tags.size}</strong> 个标签</span></div>
+			</div>
+		</section>
+
+		<section class="interest-section" aria-labelledby="interest-title">
+			<div class="section-heading"><p>MY LITTLE UNIVERSE</p><h2 id="interest-title">我会在这里写什么</h2></div>
+			<div class="interest-grid">
+				{interests.map((item, index) => <article class="interest-card">
+					<span class="index">0{index + 1}</span><Icon name={item.icon} />
+					<p>{item.label}</p><h3>{item.title}</h3><span>{item.text}</span>
+				</article>)}
+			</div>
+		</section>
+
+		<section class="about-note"><Icon name="material-symbols:nightlight-rounded" /><p>这座小站会慢慢长成我喜欢的样子。欢迎随时回来看看。</p><a href="/contact/">联系我 <Icon name="material-symbols:arrow-forward-rounded" /></a></section>
+	</div>
+</MainGridLayout>
+
+<style>
+	.about-page { width: 100%; max-width: 68rem; margin: 0 auto; color: var(--deep-text); }
+	.about-intro { display: grid; grid-template-columns: minmax(14rem, .7fr) minmax(0, 1.7fr); align-items: center; gap: clamp(2rem, 6vw, 5rem); padding: 2rem 1rem 3rem; border-bottom: 1px dashed color-mix(in srgb, var(--deep-text) 16%, transparent); }
+	.portrait-column { display: grid; justify-items: center; gap: .8rem; }
+	.portrait-frame { width: min(17rem, 75vw); aspect-ratio: .96; overflow: hidden; padding: .5rem; border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent); border-radius: 1.4rem; background: linear-gradient(145deg, color-mix(in srgb, var(--primary) 15%, var(--card-bg)), color-mix(in srgb, #a6d7ff 17%, var(--card-bg))); box-shadow: 0 1.4rem 3.5rem color-mix(in srgb, var(--primary) 18%, transparent); transform: rotate(-2deg); }
+	.portrait-frame :global(img) { width: 100%; height: 100%; border-radius: 1rem; object-fit: cover; }
+	.online-status { display: inline-flex; align-items: center; gap: .4rem; color: color-mix(in srgb, var(--deep-text) 64%, transparent); font-size: .72rem; }
+	.online-status i { width: .45rem; aspect-ratio: 1; border-radius: 50%; background: #72b78a; box-shadow: 0 0 0 .2rem #72b78a2e; }
+	.eyebrow, .section-heading > p { display: flex; align-items: center; gap: .35rem; margin: 0; color: var(--primary); font-size: .67rem; font-weight: 800; letter-spacing: .12em; }
+	.eyebrow :global(svg) { width: 1rem; height: 1rem; }
+	.about-copy h1 { margin: .55rem 0 .8rem; font-size: clamp(2.15rem, 5vw, 3.35rem); letter-spacing: -.05em; line-height: 1.1; }
+	.about-copy h1 span, .facts strong { color: var(--primary); }
+	.about-copy .lead { color: color-mix(in srgb, var(--deep-text) 78%, transparent); font-size: 1.08rem; font-weight: 600; line-height: 1.75; }
+	.about-copy > p:not(.eyebrow) { max-width: 43rem; line-height: 1.8; }
+	.details { display: grid; gap: .45rem; margin-top: 1.2rem; color: color-mix(in srgb, var(--deep-text) 64%, transparent); font-size: .78rem; }
+	.details span { display: flex; align-items: center; gap: .4rem; }
+	.details :global(svg) { width: 1rem; height: 1rem; color: var(--primary); }
+	.details b { color: var(--deep-text); }
+	.facts { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-top: 1.2rem; color: color-mix(in srgb, var(--deep-text) 55%, transparent); font-size: .72rem; }
+	.facts strong { margin-right: .22rem; font-size: 1.15rem; }
+	.interest-section { margin-top: 2.8rem; }
+	.section-heading { padding: 0 .25rem .9rem; border-bottom: 1px dashed color-mix(in srgb, var(--deep-text) 16%, transparent); }
+	.section-heading h2 { margin: .25rem 0 0; font-size: 1.55rem; }
+	.interest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .9rem; margin-top: 1rem; }
+	.interest-card { position: relative; display: grid; gap: .45rem; min-height: 13rem; padding: 1.15rem; overflow: hidden; border: 1px solid color-mix(in srgb, var(--deep-text) 11%, transparent); border-radius: 1rem; background: color-mix(in srgb, var(--card-bg) 70%, transparent); }
+	.interest-card::after { position: absolute; top: -3rem; right: -3rem; width: 8rem; height: 8rem; border-radius: 50%; background: color-mix(in srgb, var(--primary) 10%, transparent); content: ""; filter: blur(12px); }
+	.interest-card > :global(svg) { width: 1.5rem; height: 1.5rem; color: var(--primary); }
+	.interest-card .index { color: color-mix(in srgb, var(--primary) 65%, var(--deep-text)); font-size: .65rem; font-weight: 850; letter-spacing: .1em; }
+	.interest-card p { margin: .2rem 0 0; color: var(--primary); font-size: .68rem; font-weight: 800; }
+	.interest-card h3 { margin: 0; font-size: 1rem; line-height: 1.4; }
+	.interest-card > span:last-child { color: color-mix(in srgb, var(--deep-text) 62%, transparent); font-size: .75rem; line-height: 1.65; }
+	.about-note { display: flex; align-items: center; gap: .6rem; margin-top: 1.25rem; padding: .8rem 1rem; border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent); border-radius: 1rem; background: color-mix(in srgb, var(--primary) 5%, transparent); }
+	.about-note > :global(svg) { flex: 0 0 auto; color: var(--primary); }
+	.about-note p { margin: 0; color: color-mix(in srgb, var(--deep-text) 66%, transparent); font-size: .78rem; }
+	.about-note a { display: inline-flex; align-items: center; gap: .25rem; margin-left: auto; color: var(--primary); font-size: .75rem; font-weight: 750; text-decoration: none; white-space: nowrap; }
+	.about-note a :global(svg) { width: .9rem; height: .9rem; }
+	@media (max-width: 720px) { .about-intro { grid-template-columns: 1fr; gap: 1.7rem; padding-inline: .2rem; } .about-copy { text-align: center; } .eyebrow, .details span, .facts { justify-content: center; } .interest-grid { grid-template-columns: 1fr; } .interest-card { min-height: 0; } .about-note { align-items: flex-start; flex-wrap: wrap; } .about-note a { margin-left: 1.8rem; } }
+</style>

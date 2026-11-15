@@ -1,0 +1,65 @@
+---
+import { Icon } from "astro-icon/components";
+import MainGridLayout from "../layouts/MainGridLayout.astro";
+
+const contacts = [
+	{ label: "GitHub", value: "@080067", href: "https://github.com/080067", icon: "fa6-brands:github", external: true },
+	{ label: "邮箱", value: "shilin2233na@gmail.com", href: "mailto:shilin2233na@gmail.com", icon: "fa6-solid:envelope", external: false },
+	{ label: "QQ", value: "2804249691", href: "https://wpa.qq.com/msgrd?v=3&uin=2804249691&site=qq&menu=yes", icon: "fa6-brands:qq", external: true },
+];
+const wechat = "shilin-2804249691";
+---
+
+<MainGridLayout title="联系我" description="联系 Shilin">
+	<div class="contact-page page-card">
+		<header class="page-heading"><p>SAY HELLO</p><h1>来和我聊聊吧</h1><span>关于代码、ACG、想法，或者只是路过时想留下一句话。</span></header>
+		<section class="contact-grid" aria-label="联系方式">
+			{contacts.map((contact) => <a class="contact-card" href={contact.href} target={contact.external ? "_blank" : undefined} rel={contact.external ? "noopener noreferrer" : undefined}>
+				<Icon name={contact.icon} /><div><p>{contact.label}</p><strong>{contact.value}</strong></div><Icon class="arrow" name="material-symbols:arrow-outward-rounded" />
+			</a>)}
+			<button class="contact-card wechat" type="button" data-wechat={wechat} aria-label="复制微信号">
+				<Icon name="fa6-brands:weixin" /><div><p>微信</p><strong>{wechat}</strong><small>点击复制</small></div><Icon class="arrow" name="material-symbols:content-copy-outline-rounded" />
+			</button>
+		</section>
+		<section class="guestbook-prompt"><Icon name="material-symbols:forum-rounded" /><div><p>想公开留下一句话？</p><span>留言板正在准备中，也可以先写邮件给我。</span></div><a href="/guestbook/">去留言 <Icon name="material-symbols:arrow-forward-rounded" /></a></section>
+	</div>
+</MainGridLayout>
+
+<script is:inline>
+	document.addEventListener("click", async (event) => {
+		const button = event.target instanceof Element ? event.target.closest("[data-wechat]") : null;
+		if (!(button instanceof HTMLElement)) return;
+		try {
+			await navigator.clipboard.writeText(button.dataset.wechat ?? "");
+			const hint = button.querySelector("small");
+			if (hint) { hint.textContent = "已复制"; window.setTimeout(() => { hint.textContent = "点击复制"; }, 1600); }
+		} catch { /* Clipboard permissions can be unavailable in older browsers. */ }
+	});
+</script>
+
+<style>
+	.contact-page { width: 100%; max-width: 64rem; margin: 0 auto; color: var(--deep-text); }
+	.page-heading { padding: .8rem .3rem 1.5rem; border-bottom: 1px dashed color-mix(in srgb, var(--deep-text) 16%, transparent); }
+	.page-heading p { margin: 0; color: var(--primary); font-size: .68rem; font-weight: 850; letter-spacing: .12em; }
+	.page-heading h1 { margin: .35rem 0 .5rem; font-size: clamp(2.2rem, 6vw, 3.6rem); letter-spacing: -.055em; line-height: 1.05; }
+	.page-heading span { color: color-mix(in srgb, var(--deep-text) 58%, transparent); font-size: .82rem; }
+	.contact-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem; margin-top: 1.2rem; }
+	.contact-card { display: flex; align-items: center; gap: .85rem; min-width: 0; padding: 1rem; border: 1px solid color-mix(in srgb, var(--deep-text) 11%, transparent); border-radius: 1rem; color: var(--deep-text); background: color-mix(in srgb, var(--card-bg) 70%, transparent); box-shadow: 0 .55rem 1.5rem color-mix(in srgb, var(--deep-text) 4%, transparent); text-align: left; text-decoration: none; transition: transform 160ms ease, border-color 160ms ease; }
+	.contact-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--primary) 34%, transparent); }
+	.contact-card > :global(svg):first-child { flex: 0 0 auto; width: 1.45rem; height: 1.45rem; color: var(--primary); }
+	.contact-card div { display: grid; min-width: 0; gap: .12rem; }
+	.contact-card p, .contact-card strong, .contact-card small { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+	.contact-card p { color: color-mix(in srgb, var(--deep-text) 52%, transparent); font-size: .65rem; }
+	.contact-card strong { font-size: .8rem; }
+	.contact-card small { color: var(--primary); font-size: .61rem; }
+	.contact-card .arrow { width: 1rem; height: 1rem; margin-left: auto; color: color-mix(in srgb, var(--deep-text) 38%, transparent); }
+	.wechat { width: 100%; cursor: pointer; font: inherit; }
+	.guestbook-prompt { display: flex; align-items: center; gap: .8rem; margin-top: 1.1rem; padding: 1rem 1.1rem; border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent); border-radius: 1rem; background: linear-gradient(120deg, color-mix(in srgb, var(--primary) 8%, var(--card-bg)), color-mix(in srgb, #a6d7ff 8%, var(--card-bg))); }
+	.guestbook-prompt > :global(svg) { flex: 0 0 auto; width: 1.5rem; height: 1.5rem; color: var(--primary); }
+	.guestbook-prompt div { display: grid; gap: .15rem; }
+	.guestbook-prompt p { margin: 0; font-size: .82rem; font-weight: 800; }
+	.guestbook-prompt span { color: color-mix(in srgb, var(--deep-text) 58%, transparent); font-size: .72rem; }
+	.guestbook-prompt a { display: inline-flex; align-items: center; gap: .25rem; margin-left: auto; color: var(--primary); font-size: .74rem; font-weight: 800; text-decoration: none; white-space: nowrap; }
+	.guestbook-prompt a :global(svg) { width: .9rem; height: .9rem; }
+	@media (max-width: 620px) { .contact-grid { grid-template-columns: 1fr; } .guestbook-prompt { align-items: flex-start; flex-wrap: wrap; } .guestbook-prompt a { margin-left: 2.3rem; } }
+</style>
