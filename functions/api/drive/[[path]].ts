@@ -66,6 +66,7 @@ const MAX_UPLOAD_BYTES = 95 * 1024 * 1024; // Workers 请求体上限 100MB，�
 /* 面板上显示的配额（R2 免费额度是 10GB，超出部分按量计费，这里只作占用参考） */
 const DRIVE_LIMIT_BYTES = 200 * 1024 * 1024 * 1024;
 const SYS = "_sys/";
+const THUMB_DIR = `${SYS}thumbs/`;
 const META_KEY = `${SYS}meta.json`;
 const TRASH_KEY = `${SYS}trash.json`;
 const MAX_LIMIT = 1000;
@@ -365,6 +366,32 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 			return json({ prefix, folders, files, cursor: result.cursor || null, truncated: Boolean(result.truncated) });
 		}
 
+		if (action === "thumb" && (method === "GET" || method === "POST")) {
+			const key = safeKey(url.searchParams.get("key"));
+			if (!key) return json({ error: "文件名不合法。" }, 400);
+			const thumbKey = `${THUMB_DIR}${key}.webp`;
+			if (method === "POST") {
+				const type = request.headers.get("content-type") || "";
+				if (!type.startsWith("image/")) return json({ error: "缩略图必须是图片。" }, 400);
+				const buffer = await request.arrayBuffer();
+				if (buffer.byteLength > 2 * 1024 * 1024) return json({ error: "缩略图太大。" }, 413);
+				await bucket.put(thumbKey, buffer, { httpMetadata: { contentType: "image/webp" } });
+				return json({ ok: true });
+			}
+			// 有缩略图就发缩略图，没有就退回原图（老文件不用重新处理）
+			const headers = new Headers();
+			const thumb = await bucket.get(thumbKey);
+			if (thumb) {
+				headers.set("content-type", "image/webp");
+				headers.set("content-length", String(thumb.size));
+				headers.set("cache-control", "private, max-age=604800");
+				if (thumb.httpEtag) headers.set("etag", thumb.httpEtag);
+				const body = streamOf(thumb);
+				return new Response(body ?? (await thumb.arrayBuffer()), { headers });
+			}
+			return serveObject(bucket, key, url, { rangeHeader: request.headers.get("range") });
+		}
+
 		if (action === "file" && method === "GET") {
 			const key = safeKey(url.searchParams.get("key"));
 			if (!key) return json({ error: "文件名不合法。" }, 400);
@@ -515,6 +542,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 			}
 			if (url.searchParams.get("hard")) {
 				await bucket.delete(key);
+				await bucket.delete(`${THUMB_DIR}${key}.webp`).catch(() => undefined);
 				return json({ ok: true });
 			}
 			const id = randomId();
@@ -600,13 +628,17 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 			const entry = trash.find((item) => item.id === body.id);
 			if (!entry) return json({ error: "回收站里没有这一项。" }, 404);
 			await bucket.delete(`${SYS}trash/${entry.id}`);
+			await bucket.delete(`${THUMB_DIR}${entry.key}.webp`).catch(() => undefined);
 			await writeJson(bucket, TRASH_KEY, trash.filter((item) => item.id !== entry.id));
 			return json({ ok: true });
 		}
 
 		if (action === "empty-trash" && method === "POST") {
 			const trash = await loadTrash(bucket);
-			for (const entry of trash) await bucket.delete(`${SYS}trash/${entry.id}`);
+			for (const entry of trash) {
+				await bucket.delete(`${SYS}trash/${entry.id}`);
+				await bucket.delete(`${THUMB_DIR}${entry.key}.webp`).catch(() => undefined);
+			}
 			await writeJson(bucket, TRASH_KEY, []);
 			return json({ ok: true, removed: trash.length });
 		}

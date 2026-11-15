@@ -862,25 +862,65 @@ import "@fontsource/roboto/700.css";
 		}
 
 		async runUploads(tasks: { item: { file: File; path: string }; task: UploadTask }[]) {
-			for (const { item, task } of tasks) {
-				try {
-					task.status = "上传中";
+			/* 三条一起传：单条 TCP 在上行差的线路上跑不满，并发能明显快一截 */
+			const CONCURRENCY = 3;
+			let cursor = 0;
+			const worker = async () => {
+				while (cursor < tasks.length) {
+					const { item, task } = tasks[cursor++];
+					try {
+						task.status = "上传中";
+						this.renderUploads();
+						if (item.file.size > 40 * 1024 * 1024) await this.uploadMultipart(item.file, item.path, task);
+						else await this.uploadSmall(item.file, item.path, task);
+						task.progress = 100;
+						task.status = "完成";
+						/* 图片顺手传一张缩略图，之后网格不用再拉原图 */
+						void this.makeThumb(item.file, item.path);
+					} catch (error) {
+						task.status = `失败：${(error as Error).message}`;
+						task.failed = true;
+					}
 					this.renderUploads();
-					if (item.file.size > 40 * 1024 * 1024) await this.uploadMultipart(item.file, item.path, task);
-					else await this.uploadSmall(item.file, item.path, task);
-					task.progress = 100;
-					task.status = "完成";
-				} catch (error) {
-					task.status = `失败：${(error as Error).message}`;
-					task.failed = true;
 				}
-				this.renderUploads();
-			}
+			};
+			await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker));
 			await this.refresh();
 			window.setTimeout(() => {
 				this.state.uploads = this.state.uploads.filter((task) => task.status === "上传中" || task.status === "排队中" || task.failed);
 				this.renderUploads();
 			}, 4000);
+		}
+
+		/** 浏览器里把图片压成 480px 的 webp，作为网格缩略图 */
+		async makeThumb(file: File, key: string) {
+			if (!file.type.startsWith("image/")) return;
+			if (file.type === "image/svg+xml" || file.type === "image/gif") return;
+			if (file.size < 40 * 1024) return; // 本来就不大，不用缩略图
+			try {
+				const bitmap = await createImageBitmap(file);
+				const scale = Math.min(1, 480 / Math.max(bitmap.width, bitmap.height));
+				const width = Math.max(1, Math.round(bitmap.width * scale));
+				const height = Math.max(1, Math.round(bitmap.height * scale));
+				const canvas = document.createElement("canvas");
+				canvas.width = width;
+				canvas.height = height;
+				const ctx = canvas.getContext("2d");
+				if (!ctx) return;
+				ctx.imageSmoothingQuality = "high";
+				ctx.drawImage(bitmap, 0, 0, width, height);
+				bitmap.close?.();
+				const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.8));
+				if (!blob) return;
+				await fetch(`/api/drive/thumb?key=${encodeURIComponent(key)}`, {
+					method: "POST",
+					credentials: "same-origin",
+					headers: { "content-type": "image/webp" },
+					body: blob,
+				});
+			} catch {
+				/* 缩略图是锦上添花，失败了不影响原图 */
+			}
 		}
 
 		uploadSmall(file: File, key: string, task: UploadTask) {
@@ -919,22 +959,32 @@ import "@fontsource/roboto/700.css";
 			const total = Math.ceil(file.size / CHUNK);
 			const parts: { partNumber: number; etag: string }[] = [];
 			try {
-				for (let index = 0; index < total; index += 1) {
-					const chunk = file.slice(index * CHUNK, Math.min((index + 1) * CHUNK, file.size));
-					const res = await fetch(`/api/drive/mp-part?key=${encodeURIComponent(key)}&id=${encodeURIComponent(uploadId)}&n=${index + 1}`, {
-						method: "POST",
-						body: chunk,
-						credentials: "same-origin",
-					});
-					if (!res.ok) {
-						const data = await res.json().catch(() => ({}));
-						throw new Error(data.error || `第 ${index + 1} 片上传失败`);
+				/* 分片并发：上行差的时候顺序传很吃窗口，三片一起跑通常能快一倍 */
+				const PART_CONCURRENCY = 3;
+				let done = 0;
+				let next = 0;
+				const worker = async () => {
+					while (next < total) {
+						const index = next++;
+						const chunk = file.slice(index * CHUNK, Math.min((index + 1) * CHUNK, file.size));
+						const res = await fetch(`/api/drive/mp-part?key=${encodeURIComponent(key)}&id=${encodeURIComponent(uploadId)}&n=${index + 1}`, {
+							method: "POST",
+							body: chunk,
+							credentials: "same-origin",
+						});
+						if (!res.ok) {
+							const data = await res.json().catch(() => ({}));
+							throw new Error(data.error || `第 ${index + 1} 片上传失败`);
+						}
+						const data = await res.json();
+						parts.push({ partNumber: data.partNumber, etag: data.etag });
+						done += 1;
+						task.progress = Math.round((done / total) * 98);
+						this.renderUploads();
 					}
-					const data = await res.json();
-					parts.push({ partNumber: data.partNumber, etag: data.etag });
-					task.progress = Math.round(((index + 1) / total) * 98);
-					this.renderUploads();
-				}
+				};
+				await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, total) }, worker));
+				parts.sort((a, b) => a.partNumber - b.partNumber);
 				await this.request(`mp-done?key=${encodeURIComponent(key)}&id=${encodeURIComponent(uploadId)}`, {
 					method: "POST",
 					headers: { "content-type": "application/json" },
@@ -1172,10 +1222,10 @@ import "@fontsource/roboto/700.css";
 		}
 
 		cardHtml(file: DriveFile) {
-			const src = file.kind === "image" ? `/api/drive/file?key=${encodeURIComponent(file.key)}` : "";
+			const src = file.kind === "image" ? `/api/drive/thumb?key=${encodeURIComponent(file.key)}` : "";
 			return `<div class="d-card ${this.state.selected.has(file.key) ? "selected" : ""}${this.state.selectMode ? " pickable" : ""}" data-open="file" data-key="${escapeHtml(file.key)}">
 				${this.state.selectMode ? `<label class="d-check"><input type="checkbox" data-act="select-row" data-key="${escapeHtml(file.key)}" ${this.state.selected.has(file.key) ? "checked" : ""} /></label>` : ""}
-				<div class="d-card-thumb">${src ? `<img src="${src}" loading="lazy" alt="" />` : iconFor(file)}</div>
+				<div class="d-card-thumb">${src ? `<img src="${src}" loading="lazy" decoding="async" alt="" />` : iconFor(file)}</div>
 				<div class="d-card-name">${escapeHtml(file.name)}</div>
 				<div class="d-card-meta">${fmtSize(file.size)}</div>
 				${this.state.selectMode ? "" : `<button class="d-pick" data-act="enter-select" data-key="${escapeHtml(file.key)}">选择</button>`}
