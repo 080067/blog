@@ -14,18 +14,9 @@ import "@fontsource/roboto/700.css";
 		<title>我的网盘 · 39の寧靜之地</title>
 	</head>
 	<body class="drive-page" data-pagefind-ignore>
-		<main class="drive-shell">
-			<header class="drive-header">
-				<a class="drive-brand" href="/" aria-label="返回博客首页">
-					<span class="drive-brand-mark">✦</span>
-					<span><strong>我的网盘</strong><small>SHILIN'S DRIVE</small></span>
-				</a>
-				<a class="drive-back-link" href="/">返回博客 <span aria-hidden="true">↗</span></a>
-			</header>
-			<drive-app>
-				<div class="drive-loading">正在打开网盘…</div>
-			</drive-app>
-		</main>
+		<drive-app>
+			<div class="d-splash">正在打开网盘…</div>
+		</drive-app>
 	</body>
 </html>
 
@@ -36,266 +27,1082 @@ import "@fontsource/roboto/700.css";
 		size: number;
 		uploaded: string;
 		type: string;
-		isImage: boolean;
+		kind: "image" | "audio" | "video" | "pdf" | "text" | "other";
+		favorite: boolean;
 		url: string;
 		download: string;
 	};
 
+	type DriveFolder = { prefix: string; name: string };
+
+	type ShareItem = {
+		token: string;
+		key: string;
+		name: string;
+		created: number;
+		expires: number | null;
+		expired: boolean;
+		url: string;
+	};
+
+	type TrashItem = { id: string; key: string; name: string; size: number; uploaded: string; deletedAt: number };
+
+	type UploadTask = { id: number; name: string; size: number; progress: number; status: string; failed?: boolean };
+
+	type State = {
+		authed: boolean | null;
+		view: "files" | "favorites" | "trash" | "shares";
+		prefix: string;
+		folders: DriveFolder[];
+		files: DriveFile[];
+		q: string;
+		sort: string;
+		layout: "list" | "grid";
+		selected: Set<string>;
+		favorites: string[];
+		shares: ShareItem[];
+		trash: TrashItem[];
+		usage: { total: number; count: number; limit: number };
+		uploads: UploadTask[];
+		busy: boolean;
+	};
+
 	const fmtSize = (bytes: number) => {
+		if (!bytes) return "0 B";
 		if (bytes < 1024) return `${bytes} B`;
 		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 		if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 		return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 	};
 
-	const fmtDate = (iso: string) => {
-		const date = new Date(iso);
+	const fmtDate = (value: string | number) => {
+		const date = new Date(value);
 		if (Number.isNaN(date.getTime())) return "";
-		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+		const pad = (n: number) => String(n).padStart(2, "0");
+		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 	};
 
 	const escapeHtml = (value: string) =>
-		value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] as string));
+		String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[char]);
+
+	const ICONS: Record<string, string> = {
+		folder:
+			'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2c.7 0 1.35.33 1.77.9l.8 1.1H19a2 2 0 0 1 2 2v7.5A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5Z"/></svg>',
+		image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 4.5-4.5 3.5 3.5 3-3L20 17"/></svg>',
+		audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 17V6l10-2v11"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></svg>',
+		video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m10 9 5 3-5 3Z"/></svg>',
+		pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h7l5 5v13H6Z"/><path d="M13 3v5h5"/></svg>',
+		text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h7l5 5v13H6Z"/><path d="M9 12h6M9 16h4"/></svg>',
+		other: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h7l5 5v13H6Z"/><path d="M13 3v5h5"/></svg>',
+		star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 4 2.4 5 5.6.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.6-.7Z"/></svg>',
+		starOn: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 4 2.4 5 5.6.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.6-.7Z"/></svg>',
+	};
+
+	const iconFor = (file: { kind: string }) => ICONS[file.kind] || ICONS.other;
+
+	/** 回收站里 .keep 占位文件代表一个文件夹，显示成目录名更直观 */
+	const trashLabel = (item: { name: string; key: string }) => {
+		if (item.name !== ".keep") return item.name;
+		const path = item.key.replace(/\/\.keep$/, "");
+		return path ? `${path}/（文件夹）` : "文件夹";
+	};
 
 	class DriveApp extends HTMLElement {
-		private files: DriveFile[] = [];
-		private query = "";
-		private busy = 0;
+		state: State = {
+			authed: null,
+			view: "files",
+			prefix: "",
+			folders: [],
+			files: [],
+			q: "",
+			sort: "name",
+			layout: (localStorage.getItem("drive-layout") as "list" | "grid") || "list",
+			selected: new Set(),
+			favorites: [],
+			shares: [],
+			trash: [],
+			usage: { total: 0, count: 0, limit: 0 },
+			uploads: [],
+			busy: false,
+		};
 
-		connectedCallback() {
-			this.load();
+		started = false;
+		uploadSeq = 0;
+
+		async connectedCallback() {
+			if (this.started) return;
+			this.started = true;
+			await this.boot();
 		}
 
-		private async request(path: string, init: RequestInit = {}) {
-			const response = await fetch(path, { credentials: "same-origin", ...init });
-			if (response.status === 401) {
-				this.renderLogin();
-				return null;
-			}
-			const data = await response.json().catch(() => ({}));
-			if (!response.ok) throw new Error((data as { error?: string }).error || "操作失败");
-			return data as Record<string, unknown>;
-		}
-
-		private async load() {
+		async boot() {
 			try {
-				const data = await this.request("/api/drive/list");
-				if (!data) return;
-				this.files = (data.files as DriveFile[]) || [];
-				this.renderDrive();
-				void this.refreshUsage();
-			} catch (error) {
-				this.renderError(error);
-			}
-		}
-
-		private async refreshUsage() {
-			try {
-				const data = await this.request("/api/drive/usage");
-				if (!data) return;
-				const total = Number(data.total || 0);
-				const count = Number(data.count || 0);
-				const quota = 10 * 1024 * 1024 * 1024;
-				const percent = Math.min(100, (total / quota) * 100);
-				const used = this.querySelector<HTMLElement>("[data-usage-text]");
-				const bar = this.querySelector<HTMLElement>("[data-usage-bar]");
-				if (used) used.textContent = `${fmtSize(total)} / ${fmtSize(quota)}（${count} 个文件）`;
-				if (bar) bar.style.width = `${Math.max(percent, total > 0 ? 2 : 0)}%`;
+				const res = await fetch("/api/drive/usage", { credentials: "same-origin" });
+				if (res.status === 401) return this.renderAuth();
+				this.state.authed = true;
+				this.renderShell();
+				await this.refresh();
 			} catch {
-				/* 用量统计失败不影响使用 */
+				this.renderAuth("连不上网盘接口，检查网络后再试。");
 			}
 		}
 
-		private renderLogin(message = "") {
+		/* ---------------- 请求 ---------------- */
+
+		async request(path: string, options: RequestInit = {}) {
+			const res = await fetch("/api/drive/" + path, { credentials: "same-origin", ...options });
+			if (res.status === 401) {
+				this.state.authed = false;
+				this.renderAuth();
+				throw new Error("请先登录");
+			}
+			let data: any = {};
+			try {
+				data = await res.json();
+			} catch {
+				data = {};
+			}
+			if (!res.ok) throw new Error(data.error || `请求失败（${res.status}）`);
+			return data;
+		}
+
+		async login(password: string) {
+			const res = await fetch("/api/admin/login", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				credentials: "same-origin",
+				body: JSON.stringify({ password }),
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(data.error || "密码不正确");
+		}
+
+		/* ---------------- 数据 ---------------- */
+
+		async refresh() {
+			const { view } = this.state;
+			try {
+				if (view === "files") await this.loadFiles();
+				else if (view === "favorites") await this.loadFavorites();
+				else if (view === "trash") await this.loadTrash();
+				else if (view === "shares") await this.loadShares();
+				await this.loadUsage();
+			} catch (error) {
+				if (this.state.authed === false) return;
+				this.toast((error as Error).message, "error");
+			}
+			this.render();
+		}
+
+		async loadFiles() {
+			const params = new URLSearchParams();
+			if (this.state.prefix) params.set("prefix", this.state.prefix);
+			if (this.state.q) params.set("q", this.state.q);
+			const data = await this.request(`list?${params.toString()}`);
+			this.state.folders = this.state.q ? [] : (data.folders as DriveFolder[]);
+			this.state.files = data.files as DriveFile[];
+			this.state.selected.clear();
+		}
+
+		async loadFavorites() {
+			const data = await this.request("favorites");
+			this.state.folders = [];
+			this.state.files = data.files as DriveFile[];
+			this.state.selected.clear();
+		}
+
+		async loadTrash() {
+			const data = await this.request("trash");
+			this.state.trash = data.items as TrashItem[];
+			this.state.selected.clear();
+		}
+
+		async loadShares() {
+			const data = await this.request("meta");
+			this.state.favorites = data.favorites as string[];
+			this.state.shares = data.shares as ShareItem[];
+			this.state.selected.clear();
+		}
+
+		async loadUsage() {
+			const data = await this.request("usage");
+			this.state.usage = data as { total: number; count: number; limit: number };
+		}
+
+		/* ---------------- 渲染：登录 ---------------- */
+
+		renderAuth(message = "") {
 			this.innerHTML = `
-				<section class="drive-card drive-login">
-					<div class="drive-lock">🔒</div>
-					<h1>私藏小仓库</h1>
-					<p>这里存着我自己的歌和照片，用后台密码开门。</p>
-					<form data-login>
-						<input type="password" name="password" placeholder="输入密码" autocomplete="current-password" required />
-						<button type="submit">进入</button>
-					</form>
-					<p class="drive-error" data-login-error>${escapeHtml(message)}</p>
-				</section>`;
-			const form = this.querySelector<HTMLFormElement>("[data-login]");
+				<div class="d-auth">
+					<div class="d-auth-card">
+						<div class="d-auth-icon">🔒</div>
+						<h1>私藏小仓库</h1>
+						<p>这里存着我自己的歌和照片，用后台密码开门。</p>
+						<form data-login>
+							<input type="password" name="password" placeholder="输入密码" autocomplete="current-password" required />
+							<button type="submit">进入</button>
+						</form>
+						${message ? `<p class="d-auth-error">${escapeHtml(message)}</p>` : ""}
+						<p class="d-auth-foot"><a href="/">返回博客</a></p>
+					</div>
+				</div>`;
+			const form = this.querySelector("form[data-login]") as HTMLFormElement;
 			form?.addEventListener("submit", async (event) => {
 				event.preventDefault();
-				const password = String(new FormData(form).get("password") || "");
-				const errorEl = this.querySelector<HTMLElement>("[data-login-error]");
-				if (errorEl) errorEl.textContent = "正在验证…";
+				const input = form.querySelector("input") as HTMLInputElement;
+				const button = form.querySelector("button") as HTMLButtonElement;
+				button.disabled = true;
+				button.textContent = "开门中…";
 				try {
-					const response = await fetch("/api/admin/login", {
-						method: "POST",
-						headers: { "content-type": "application/json" },
-						credentials: "same-origin",
-						body: JSON.stringify({ password }),
-					});
-					if (!response.ok) {
-						const data = await response.json().catch(() => ({}));
-						if (errorEl) errorEl.textContent = (data as { error?: string }).error || "密码不对。";
+					await this.login(input.value);
+					this.state.authed = true;
+					await this.boot();
+				} catch (error) {
+					button.disabled = false;
+					button.textContent = "进入";
+					const tip = this.querySelector(".d-auth-error");
+					if (tip) tip.textContent = (error as Error).message;
+					else form.insertAdjacentHTML("afterend", `<p class="d-auth-error">${escapeHtml((error as Error).message)}</p>`);
+				}
+			});
+		}
+
+		/* ---------------- 渲染：骨架 ---------------- */
+
+		renderShell() {
+			this.innerHTML = `
+				<div class="d-layout">
+					<aside class="d-side">
+						<a class="d-brand" href="/">
+							<span class="d-brand-mark">✦</span>
+							<span><strong>我的网盘</strong><small>SHILIN'S DRIVE</small></span>
+						</a>
+						<nav class="d-nav">
+							<button data-nav="files">${ICONS.folder}<span>全部文件</span></button>
+							<button data-nav="favorites">${ICONS.star}<span>收藏</span></button>
+							<button data-nav="shares">${ICONS.other}<span>分享链接</span></button>
+							<button data-nav="trash">${ICONS.text}<span>回收站</span></button>
+						</nav>
+						<div class="d-usage">
+							<div class="d-usage-bar"><i data-usage-bar></i></div>
+							<p data-usage-text>统计中…</p>
+						</div>
+						<a class="d-back" href="/">← 返回博客</a>
+					</aside>
+					<main class="d-main">
+						<header class="d-top">
+							<nav class="d-crumbs" data-crumbs></nav>
+							<div class="d-top-actions">
+								<label class="d-search">
+									<input type="search" placeholder="搜索文件名…" data-search />
+								</label>
+								<button class="d-icon-btn" data-act="toggle-layout" title="切换视图" data-layout-btn></button>
+								<select data-sort class="d-sort">
+									<option value="name">按名称</option>
+									<option value="date">按时间</option>
+									<option value="size">按大小</option>
+								</select>
+								<button class="d-btn d-btn-primary" data-act="upload">＋ 上传</button>
+							</div>
+						</header>
+						<div class="d-toolbar" data-toolbar></div>
+						<section class="d-body" data-body></section>
+						<div class="d-uploads" data-uploads></div>
+					</main>
+				</div>
+				<input type="file" multiple hidden data-file-input />
+				<div class="d-modal" data-modal hidden></div>
+				<div class="d-toast" data-toast hidden></div>
+				<div class="d-drop-hint" data-drop-hint>松手就上传到这里</div>`;
+
+			this.bind();
+			this.querySelectorAll<HTMLButtonElement>("[data-nav]").forEach((button) => {
+				button.addEventListener("click", async () => {
+					const view = button.dataset.nav as State["view"];
+					if (this.state.view === view) return;
+					this.state.view = view;
+					this.state.q = "";
+					(this.querySelector("[data-search]") as HTMLInputElement).value = "";
+					await this.refresh();
+				});
+			});
+
+			const search = this.querySelector("[data-search]") as HTMLInputElement;
+			let timer = 0;
+			search.addEventListener("input", () => {
+				window.clearTimeout(timer);
+				timer = window.setTimeout(async () => {
+					this.state.q = search.value.trim();
+					this.state.prefix = this.state.q ? "" : this.state.prefix;
+					await this.refresh();
+				}, 220);
+			});
+
+			const sort = this.querySelector("[data-sort]") as HTMLSelectElement;
+			sort.value = this.state.sort;
+			sort.addEventListener("change", () => {
+				this.state.sort = sort.value;
+				this.render();
+			});
+
+			const input = this.querySelector("[data-file-input]") as HTMLInputElement;
+			input.addEventListener("change", () => {
+				const files = Array.from(input.files || []);
+				input.value = "";
+				if (files.length) this.enqueue(files.map((file) => ({ file, path: this.state.prefix + file.name })));
+			});
+
+			this.setupDragAndDrop();
+		}
+
+		bind() {
+			this.addEventListener("click", (event) => {
+				const target = event.target as HTMLElement;
+				const actionEl = target.closest("[data-act]") as HTMLElement | null;
+				if (!actionEl) return;
+				const act = actionEl.dataset.act;
+				if (!act) return;
+				event.preventDefault();
+				void this.handleAction(act, actionEl, event);
+			});
+
+			this.addEventListener("dblclick", (event) => {
+				const row = (event.target as HTMLElement).closest("[data-open]") as HTMLElement | null;
+				if (!row) return;
+				const kind = row.dataset.open;
+				if (kind === "folder") void this.openFolder(row.dataset.prefix || "");
+				else if (kind === "file") void this.preview(row.dataset.key || "");
+			});
+
+			document.addEventListener("keydown", (event) => {
+				if (event.key === "Escape") this.closeModal();
+				if ((event.key === "Delete" || event.key === "Backspace") && this.state.selected.size && !(event.target as HTMLElement).closest("input,textarea")) {
+					event.preventDefault();
+					void this.deleteSelected();
+				}
+				if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a" && !(event.target as HTMLElement).closest("input,textarea")) {
+					event.preventDefault();
+					for (const key of this.visibleKeys()) this.state.selected.add(key);
+					this.renderBody();
+				}
+			});
+		}
+
+		visibleKeys() {
+			return [...this.state.folders.map((f) => `folder:${f.prefix}`), ...this.state.files.map((f) => f.key)];
+		}
+
+		/* ---------------- 交互 ---------------- */
+
+		async handleAction(act: string, el: HTMLElement, event: Event) {
+			const key = el.dataset.key || "";
+			try {
+				switch (act) {
+					case "toggle-layout": {
+						this.state.layout = this.state.layout === "list" ? "grid" : "list";
+						localStorage.setItem("drive-layout", this.state.layout);
+						this.render();
 						return;
 					}
-					await this.load();
-				} catch (error) {
-					if (errorEl) errorEl.textContent = error instanceof Error ? error.message : "登录失败。";
+					case "upload":
+						(this.querySelector("[data-file-input]") as HTMLInputElement).click();
+						return;
+					case "mkdir": {
+						const name = window.prompt("新建文件夹，名字：", "");
+						if (!name) return;
+						await this.request("mkdir", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ prefix: this.state.prefix, name }),
+						});
+						this.toast("文件夹已创建");
+						await this.refresh();
+						return;
+					}
+					case "open-folder":
+						await this.openFolder(el.dataset.prefix || "");
+						return;
+					case "crumb":
+						this.state.prefix = el.dataset.prefix || "";
+						this.state.q = "";
+						(this.querySelector("[data-search]") as HTMLInputElement).value = "";
+						this.state.view = "files";
+						await this.refresh();
+						return;
+					case "select-row": {
+						if ((event as MouseEvent).detail > 1) return;
+						event.stopPropagation();
+						if (this.state.selected.has(key)) this.state.selected.delete(key);
+						else this.state.selected.add(key);
+						this.renderToolbar();
+						this.renderBody();
+						return;
+					}
+					case "select-all": {
+						if (this.state.selected.size) this.state.selected.clear();
+						else for (const k of this.visibleKeys()) this.state.selected.add(k);
+						this.renderToolbar();
+						this.renderBody();
+						return;
+					}
+					case "preview":
+						await this.preview(key);
+						return;
+					case "download":
+						window.open(`/api/drive/file?key=${encodeURIComponent(key)}&download=1`, "_blank");
+						return;
+					case "favorite": {
+						const on = !this.state.favorites.includes(key);
+						await this.request("favorite", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ key, on }),
+						});
+						this.state.favorites = on ? [...this.state.favorites, key] : this.state.favorites.filter((k) => k !== key);
+						this.render();
+						return;
+					}
+					case "share-file": {
+						const link = await this.createShare([key]);
+						if (link) this.openShareDialog(link);
+						return;
+					}
+					case "rename": {
+						const current = key.split("/").pop() || key;
+						const name = window.prompt("新名字：", current);
+						if (!name || name === current) return;
+						await this.request("rename", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ key, name }),
+						});
+						this.toast("已重命名");
+						await this.refresh();
+						return;
+					}
+					case "delete-file":
+						await this.request(`delete?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+						this.toast("已移入回收站");
+						await this.refresh();
+						return;
+					case "delete-folder": {
+						const prefix = el.dataset.prefix || "";
+						if (!window.confirm(`把「${prefix.replace(/\/$/, "").split("/").pop()}」整个文件夹移到回收站？`)) return;
+						const data = await this.request("delete-folder", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ prefix }),
+						});
+						this.toast(`已移入回收站（${data.moved} 个文件）`);
+						await this.refresh();
+						return;
+					}
+					case "bulk-delete":
+						await this.deleteSelected();
+						return;
+					case "bulk-fav":
+						await this.favoriteSelected();
+						return;
+					case "bulk-share": {
+						const keys = [...this.state.selected].filter((k) => !k.startsWith("folder:"));
+						if (!keys.length) return this.toast("分享只支持单个文件", "error");
+						const link = await this.createShare(keys);
+						if (link) this.openShareDialog(link);
+						return;
+					}
+					case "bulk-move":
+						await this.moveSelected();
+						return;
+					case "restore": {
+						await this.request("restore", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ id: el.dataset.id }),
+						});
+						this.toast("已还原");
+						await this.refresh();
+						return;
+					}
+					case "purge": {
+						if (!window.confirm("彻底删除这个文件？无法恢复。")) return;
+						await this.request("purge", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ id: el.dataset.id }),
+						});
+						this.toast("已彻底删除");
+						await this.refresh();
+						return;
+					}
+					case "empty-trash": {
+						if (!window.confirm("清空回收站？里面的文件会彻底删除。")) return;
+						const data = await this.request("empty-trash", { method: "POST" });
+						this.toast(`回收站已清空（${data.removed} 个）`);
+						await this.refresh();
+						return;
+					}
+					case "copy-link": {
+						const url = new URL(el.dataset.url || "", location.origin).toString();
+						await navigator.clipboard.writeText(url).catch(() => {});
+						this.toast("链接已复制");
+						return;
+					}
+					case "revoke": {
+						await this.request("unshare", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ token: el.dataset.token }),
+						});
+						this.toast("已取消分享");
+						await this.refresh();
+						return;
+					}
+					case "logout":
+						await fetch("/api/admin/logout", { method: "POST", credentials: "same-origin" });
+						this.state.authed = false;
+						this.renderAuth();
+						return;
 				}
-			});
+			} catch (error) {
+				if (this.state.authed === false) return;
+				this.toast((error as Error).message, "error");
+			}
 		}
 
-		private renderError(error: unknown) {
-			const message = error instanceof Error ? error.message : "出错了";
-			this.innerHTML = `
-				<section class="drive-card drive-login">
-					<div class="drive-lock">🛠️</div>
-					<h1>网盘打不开</h1>
-					<p class="drive-error">${escapeHtml(message)}</p>
-					<p class="drive-hint">如果提示「还没开通 R2」，请先在 Cloudflare 后台启用 R2 并给 Pages 项目绑定 DRIVE。</p>
-				</section>`;
+		async openFolder(prefix: string) {
+			this.state.view = "files";
+			this.state.prefix = prefix;
+			this.state.q = "";
+			(this.querySelector("[data-search]") as HTMLInputElement).value = "";
+			await this.refresh();
 		}
 
-		private renderDrive() {
-			this.innerHTML = `
-				<section class="drive-card">
-					<div class="drive-top">
-						<div class="drive-title">
-							<h1>私藏小仓库</h1>
-							<p data-usage-text>正在统计…</p>
-							<div class="drive-usage"><span data-usage-bar></span></div>
-						</div>
-						<div class="drive-actions">
-							<label class="drive-search">
-								<input type="search" placeholder="搜文件名…" data-search />
-							</label>
-							<button type="button" class="drive-primary" data-pick>＋ 上传文件</button>
-							<input type="file" multiple hidden data-input />
-						</div>
-					</div>
-
-					<div class="drive-drop" data-drop>
-						<span>把歌、照片拖到这里，或者点上面的「上传文件」</span>
-						<small>单个文件最大 95 MB</small>
-					</div>
-
-					<div class="drive-progress" data-progress hidden><span></span></div>
-					<div class="drive-list" data-list></div>
-					<p class="drive-error" data-op-error></p>
-				</section>`;
-
-			this.querySelector("[data-pick]")?.addEventListener("click", () => {
-				this.querySelector<HTMLInputElement>("[data-input]")?.click();
+		async createShare(keys: string[]) {
+			if (keys.length !== 1) {
+				this.toast("一次只能分享一个文件", "error");
+				return "";
+			}
+			const data = await this.request("share", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ key: keys[0] }),
 			});
-			this.querySelector<HTMLInputElement>("[data-input]")?.addEventListener("change", (event) => {
-				const input = event.target as HTMLInputElement;
-				if (input.files) void this.upload([...input.files]);
-				input.value = "";
-			});
-			this.querySelector("[data-search]")?.addEventListener("input", (event) => {
-				this.query = (event.target as HTMLInputElement).value.trim().toLowerCase();
-				this.paintList();
-			});
+			await this.loadShares();
+			return new URL(data.url, location.origin).toString();
+		}
 
-			const drop = this.querySelector<HTMLElement>("[data-drop]")!;
-			for (const type of ["dragenter", "dragover"]) {
-				drop.addEventListener(type, (event) => {
-					event.preventDefault();
-					drop.classList.add("is-over");
+		async favoriteSelected() {
+			for (const key of this.state.selected) {
+				if (key.startsWith("folder:")) continue;
+				const on = !this.state.favorites.includes(key);
+				await this.request("favorite", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ key, on }),
 				});
 			}
-			for (const type of ["dragleave", "drop"]) {
-				drop.addEventListener(type, () => drop.classList.remove("is-over"));
-			}
-			drop.addEventListener("drop", (event) => {
-				event.preventDefault();
-				const files = [...(event.dataTransfer?.files || [])];
-				if (files.length) void this.upload(files);
-			});
-
-			this.paintList();
+			this.toast("已更新收藏");
+			await this.refresh();
 		}
 
-		private paintList() {
-			const list = this.querySelector<HTMLElement>("[data-list]");
-			if (!list) return;
-			const shown = this.files.filter((file) => !this.query || file.name.toLowerCase().includes(this.query));
-			if (!shown.length) {
-				list.innerHTML = `<p class="drive-empty">${this.query ? "没有匹配的文件。" : "这里还是空的，先丢点东西进来吧。"}</p>`;
+		async deleteSelected() {
+			const keys = [...this.state.selected];
+			if (!keys.length) return;
+			if (!window.confirm(`把选中的 ${keys.length} 项移入回收站？`)) return;
+			for (const key of keys) {
+				if (key.startsWith("folder:")) {
+					await this.request("delete-folder", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ prefix: key.slice(7) }),
+					});
+				} else {
+					await this.request(`delete?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+				}
+			}
+			this.toast("已移入回收站");
+			await this.refresh();
+		}
+
+		async moveSelected() {
+			const keys = [...this.state.selected].filter((k) => !k.startsWith("folder:"));
+			if (!keys.length) return this.toast("文件夹暂不支持移动", "error");
+			const target = window.prompt("移动到哪个文件夹？（留空 = 根目录，用 / 分隔层级）", this.state.prefix);
+			if (target === null) return;
+			const clean = target.trim().replace(/^\/+|\/+$/g, "");
+			for (const key of keys) {
+				const name = key.split("/").pop() || key;
+				await this.request("move", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ from: key, to: clean ? `${clean}/${name}` : name }),
+				});
+			}
+			this.toast("已移动");
+			await this.refresh();
+		}
+
+		/* ---------------- 预览 ---------------- */
+
+		async preview(key: string) {
+			const file = this.state.files.find((item) => item.key === key);
+			if (!file) return;
+			const url = `/api/drive/file?key=${encodeURIComponent(key)}`;
+			let body = "";
+			if (file.kind === "image") body = `<img src="${url}" alt="" />`;
+			else if (file.kind === "video") body = `<video src="${url}" controls autoplay></video>`;
+			else if (file.kind === "audio") body = `<div class="d-audio"><div class="d-audio-icon">♪</div><audio src="${url}" controls autoplay></audio></div>`;
+			else if (file.kind === "pdf") body = `<iframe src="${url}" title="PDF"></iframe>`;
+			else if (file.kind === "text") {
+				const res = await fetch(url, { credentials: "same-origin" });
+				const text = await res.text();
+				body = `<pre class="d-text">${escapeHtml(text.slice(0, 200000))}</pre>`;
+			} else {
+				body = `<div class="d-no-preview"><p>这种格式没法在线预览</p><a class="d-btn d-btn-primary" href="${url}&download=1">下载文件</a></div>`;
+			}
+			this.openModal(`
+				<div class="d-modal-head">
+					<strong>${escapeHtml(file.name)}</strong>
+					<div>
+						<a class="d-btn" href="${url}&download=1">下载</a>
+						<button class="d-icon-btn" data-act="close-modal">✕</button>
+					</div>
+				</div>
+				<div class="d-modal-body">${body}</div>`);
+		}
+
+		openModal(html: string) {
+			const modal = this.querySelector("[data-modal]") as HTMLElement;
+			modal.innerHTML = html;
+			modal.hidden = false;
+			modal.classList.add("open");
+			modal.onclick = (event) => {
+				if (event.target === modal || (event.target as HTMLElement).closest("[data-act='close-modal']")) this.closeModal();
+			};
+		}
+
+		closeModal() {
+			const modal = this.querySelector("[data-modal]") as HTMLElement | null;
+			if (!modal) return;
+			modal.hidden = true;
+			modal.classList.remove("open");
+			modal.innerHTML = "";
+			modal.querySelectorAll("video,audio").forEach((el) => (el as HTMLMediaElement).pause());
+		}
+
+		openShareDialog(url: string) {
+			this.openModal(`
+				<div class="d-modal-head">
+					<strong>分享链接</strong>
+					<button class="d-icon-btn" data-act="close-modal">✕</button>
+				</div>
+				<div class="d-modal-body d-share-body">
+					<p>拿到这个链接的人都能直接访问（知道链接即可，不会出现在任何列表里）：</p>
+					<input class="d-share-input" readonly value="${escapeHtml(url)}" />
+					<div class="d-share-actions">
+						<button class="d-btn d-btn-primary" data-act="copy-link" data-url="${escapeHtml(url)}">复制链接</button>
+						<a class="d-btn" href="${escapeHtml(url)}" target="_blank">打开看看</a>
+					</div>
+				</div>`);
+		}
+
+		/* ---------------- 上传 ---------------- */
+
+		setupDragAndDrop() {
+			const zone = this.querySelector("[data-body]") as HTMLElement;
+			const hint = this.querySelector("[data-drop-hint]") as HTMLElement;
+			const show = (on: boolean) => hint.classList.toggle("show", on);
+			let depth = 0;
+			["dragenter", "dragover"].forEach((type) =>
+				zone.addEventListener(type, (event) => {
+					event.preventDefault();
+					depth += 1;
+					show(true);
+				}),
+			);
+			["dragleave", "dragend"].forEach((type) =>
+				zone.addEventListener(type, () => {
+					depth = Math.max(0, depth - 1);
+					if (!depth) show(false);
+				}),
+			);
+			zone.addEventListener("drop", async (event) => {
+				event.preventDefault();
+				depth = 0;
+				show(false);
+				const transfer = (event as DragEvent).dataTransfer;
+				if (!transfer) return;
+				const entries: { file: File; path: string }[] = [];
+				const items = Array.from(transfer.items || []);
+				const readEntry = async (entry: any, base: string): Promise<void> => {
+					if (entry.isFile) {
+						const file = await new Promise<File>((resolve, reject) => entry.file(resolve, reject));
+						entries.push({ file, path: base + file.name });
+					} else if (entry.isDirectory) {
+						const reader = entry.createReader();
+						const children: any[] = await new Promise((resolve) => {
+							const all: any[] = [];
+							const read = () => reader.readEntries((batch: any[]) => (batch.length ? (all.push(...batch), read()) : resolve(all)), () => resolve(all));
+							read();
+						});
+						for (const child of children) await readEntry(child, base + entry.name + "/");
+					}
+				};
+				if (items.length && (items[0] as any).webkitGetAsEntry) {
+					for (const item of items) {
+						const entry = (item as any).webkitGetAsEntry();
+						if (entry) await readEntry(entry, this.state.prefix);
+					}
+				}
+				if (!entries.length) {
+					for (const file of Array.from(transfer.files || [])) entries.push({ file, path: this.state.prefix + file.name });
+				}
+				if (entries.length) void this.enqueue(entries);
+			});
+		}
+
+		enqueue(items: { file: File; path: string }[]) {
+			const tasks = items.map((item) => {
+				const task: UploadTask = { id: ++this.uploadSeq, name: item.path, size: item.file.size, progress: 0, status: "排队中" };
+				this.state.uploads.push(task);
+				return { item, task };
+			});
+			this.renderUploads();
+			void this.runUploads(tasks);
+		}
+
+		async runUploads(tasks: { item: { file: File; path: string }; task: UploadTask }[]) {
+			for (const { item, task } of tasks) {
+				try {
+					task.status = "上传中";
+					this.renderUploads();
+					if (item.file.size > 40 * 1024 * 1024) await this.uploadMultipart(item.file, item.path, task);
+					else await this.uploadSmall(item.file, item.path, task);
+					task.progress = 100;
+					task.status = "完成";
+				} catch (error) {
+					task.status = `失败：${(error as Error).message}`;
+					task.failed = true;
+				}
+				this.renderUploads();
+			}
+			await this.refresh();
+			window.setTimeout(() => {
+				this.state.uploads = this.state.uploads.filter((task) => task.status === "上传中" || task.status === "排队中" || task.failed);
+				this.renderUploads();
+			}, 4000);
+		}
+
+		uploadSmall(file: File, key: string, task: UploadTask) {
+			return new Promise<void>((resolve, reject) => {
+				const xhr = new XMLHttpRequest();
+				xhr.open("POST", `/api/drive/upload?key=${encodeURIComponent(key)}`);
+				xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
+				xhr.withCredentials = true;
+				xhr.upload.onprogress = (event) => {
+					if (!event.lengthComputable) return;
+					task.progress = Math.round((event.loaded / event.total) * 100);
+					this.renderUploads();
+				};
+				xhr.onload = () => {
+					if (xhr.status >= 200 && xhr.status < 300) return resolve();
+					let message = `上传失败（${xhr.status}）`;
+					try {
+						message = JSON.parse(xhr.responseText).error || message;
+					} catch {
+						/* 忽略 */
+					}
+					reject(new Error(message));
+				};
+				xhr.onerror = () => reject(new Error("网络中断"));
+				xhr.send(file);
+			});
+		}
+
+		async uploadMultipart(file: File, key: string, task: UploadTask) {
+			const CHUNK = 8 * 1024 * 1024;
+			const init = await this.request(`mp-init?key=${encodeURIComponent(key)}`, {
+				method: "POST",
+				headers: { "content-type": file.type || "application/octet-stream" },
+			});
+			const uploadId = init.uploadId as string;
+			const total = Math.ceil(file.size / CHUNK);
+			const parts: { partNumber: number; etag: string }[] = [];
+			try {
+				for (let index = 0; index < total; index += 1) {
+					const chunk = file.slice(index * CHUNK, Math.min((index + 1) * CHUNK, file.size));
+					const res = await fetch(`/api/drive/mp-part?key=${encodeURIComponent(key)}&id=${encodeURIComponent(uploadId)}&n=${index + 1}`, {
+						method: "POST",
+						body: chunk,
+						credentials: "same-origin",
+					});
+					if (!res.ok) {
+						const data = await res.json().catch(() => ({}));
+						throw new Error(data.error || `第 ${index + 1} 片上传失败`);
+					}
+					const data = await res.json();
+					parts.push({ partNumber: data.partNumber, etag: data.etag });
+					task.progress = Math.round(((index + 1) / total) * 98);
+					this.renderUploads();
+				}
+				await this.request(`mp-done?key=${encodeURIComponent(key)}&id=${encodeURIComponent(uploadId)}`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ parts }),
+				});
+			} catch (error) {
+				await fetch(`/api/drive/mp-abort?key=${encodeURIComponent(key)}&id=${encodeURIComponent(uploadId)}`, {
+					method: "POST",
+					credentials: "same-origin",
+				}).catch(() => {});
+				throw error;
+			}
+		}
+
+		/* ---------------- 渲染 ---------------- */
+
+		render() {
+			if (!this.querySelector(".d-layout")) return;
+			this.renderSidebar();
+			this.renderCrumbs();
+			this.renderToolbar();
+			this.renderBody();
+			this.renderUsage();
+			this.renderUploads();
+		}
+
+		renderSidebar() {
+			this.querySelectorAll<HTMLElement>("[data-nav]").forEach((button) => {
+				button.classList.toggle("active", button.dataset.nav === this.state.view);
+			});
+			const layoutBtn = this.querySelector("[data-layout-btn]") as HTMLElement;
+			if (layoutBtn) layoutBtn.textContent = this.state.layout === "list" ? "▦" : "☰";
+			const toolbarExtra = this.querySelector("[data-mkdir]");
+			if (!toolbarExtra && this.state.view === "files") {
+				const actions = this.querySelector(".d-top-actions") as HTMLElement;
+				const mkdir = document.createElement("button");
+				mkdir.className = "d-btn";
+				mkdir.dataset.act = "mkdir";
+				mkdir.dataset.mkdir = "1";
+				mkdir.textContent = "＋ 文件夹";
+				actions?.insertBefore(mkdir, this.querySelector("[data-act='upload']"));
+			}
+		}
+
+		renderCrumbs() {
+			const crumbs = this.querySelector("[data-crumbs]") as HTMLElement;
+			const parts = this.state.prefix.split("/").filter(Boolean);
+			const items = [`<button data-act="crumb" data-prefix="">全部文件</button>`];
+			let path = "";
+			for (const part of parts) {
+				path += part + "/";
+				items.push(`<span class="d-crumb-sep">/</span><button data-act="crumb" data-prefix="${escapeHtml(path)}">${escapeHtml(part)}</button>`);
+			}
+			crumbs.innerHTML = this.state.view === "files" ? items.join("") : `<span class="d-crumb-title">${{ favorites: "收藏", trash: "回收站", shares: "分享链接" }[this.state.view]}</span>`;
+		}
+
+		renderToolbar() {
+			const bar = this.querySelector("[data-toolbar]") as HTMLElement;
+			if (this.state.view === "trash") {
+				bar.innerHTML = this.state.trash.length
+					? `<span class="d-tool-text">回收站里的文件可以还原，或彻底删除。</span><button class="d-btn d-btn-danger" data-act="empty-trash">清空回收站</button>`
+					: "";
 				return;
 			}
-			list.innerHTML = shown
-				.map(
-					(file) => `
-					<article class="drive-item" data-key="${escapeHtml(file.key)}">
-						<a class="drive-thumb" href="${file.url}" target="_blank" rel="noreferrer">
-							${file.isImage ? `<img src="${file.url}" alt="" loading="lazy" />` : `<span class="drive-icon">${file.name.toLowerCase().endsWith(".mp3") || file.name.toLowerCase().endsWith(".flac") ? "♪" : "📄"}</span>`}
-						</a>
-						<div class="drive-meta">
-							<strong title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</strong>
-							<small>${fmtSize(file.size)} · ${fmtDate(file.uploaded)}</small>
-						</div>
-						<div class="drive-item-actions">
-							<a href="${file.download}" download>下载</a>
-							<button type="button" data-delete="${escapeHtml(file.key)}">删除</button>
-						</div>
-					</article>`,
-				)
-				.join("");
-			list.querySelectorAll<HTMLButtonElement>("[data-delete]").forEach((button) => {
-				button.addEventListener("click", () => void this.remove(button.dataset.delete || ""));
+			if (this.state.view === "shares") {
+				bar.innerHTML = this.state.shares.length ? `<span class="d-tool-text">共 ${this.state.shares.length} 个分享链接</span>` : "";
+				return;
+			}
+			const count = this.state.selected.size;
+			if (!count) {
+				bar.innerHTML = `<label class="d-check-all"><input type="checkbox" data-act="select-all" ${this.state.files.length && count === this.state.files.length ? "checked" : ""} /> <span>全选</span></label>
+					<span class="d-tool-text">${this.state.q ? `搜索「${escapeHtml(this.state.q)}」` : `${this.state.folders.length} 个文件夹 · ${this.state.files.length} 个文件`}</span>`;
+				return;
+			}
+			bar.innerHTML = `<strong>已选 ${count} 项</strong>
+				<div class="d-bulk">
+					<button class="d-btn" data-act="bulk-move">移动</button>
+					<button class="d-btn" data-act="bulk-fav">收藏</button>
+					<button class="d-btn" data-act="bulk-share">分享</button>
+					<button class="d-btn d-btn-danger" data-act="bulk-delete">删除</button>
+					<button class="d-icon-btn" data-act="select-all">✕</button>
+				</div>`;
+		}
+
+		sortedFiles() {
+			const files = [...this.state.files];
+			const dir = this.state.sort === "size" ? -1 : 1;
+			files.sort((a, b) => {
+				if (this.state.sort === "size") return (a.size - b.size) * dir;
+				if (this.state.sort === "date") return (Date.parse(b.uploaded) - Date.parse(a.uploaded));
+				return a.name.localeCompare(b.name, "zh-Hans-CN");
 			});
+			return files;
 		}
 
-		private async remove(key: string) {
-			if (!key) return;
-			if (!confirm(`删除「${key}」？删了就找不回来了。`)) return;
-			try {
-				await this.request(`/api/drive/delete?key=${encodeURIComponent(key)}`, { method: "DELETE" });
-				this.files = this.files.filter((file) => file.key !== key);
-				this.paintList();
-				void this.refreshUsage();
-			} catch (error) {
-				this.showError(error);
+		renderBody() {
+			const body = this.querySelector("[data-body]") as HTMLElement;
+			if (!body) return;
+			if (this.state.view === "trash") {
+				body.className = "d-body";
+				body.innerHTML = this.state.trash.length
+					? `<div class="d-list">${this.state.trash
+							.map(
+								(item) => `<div class="d-row">
+						<div class="d-ico ${item.name === ".keep" ? "d-ico-folder" : ""}">${item.name === ".keep" ? ICONS.folder : ICONS.other}</div>
+						<div class="d-name" title="${escapeHtml(item.key)}">${escapeHtml(trashLabel(item))}<small>${escapeHtml(item.key)}</small></div>
+						<div class="d-meta">${item.name === ".keep" ? "文件夹" : fmtSize(item.size)}</div>
+						<div class="d-meta">${fmtDate(item.deletedAt)} 删除</div>
+						<div class="d-row-actions">
+							<button class="d-icon-btn" data-act="restore" data-id="${item.id}" title="还原">↩</button>
+							<button class="d-icon-btn" data-act="purge" data-id="${item.id}" title="彻底删除">🗑</button>
+						</div>
+					</div>`,
+							)
+							.join("")}</div>`
+					: `<div class="d-empty">${ICONS.text}<p>回收站是空的</p></div>`;
+				return;
 			}
-		}
-
-		private showError(error: unknown) {
-			const el = this.querySelector<HTMLElement>("[data-op-error]");
-			if (el) el.textContent = error instanceof Error ? error.message : "操作失败";
-		}
-
-		private async upload(files: File[]) {
-			const progress = this.querySelector<HTMLElement>("[data-progress]");
-			const bar = progress?.firstElementChild as HTMLElement | null;
-			if (progress) progress.hidden = false;
-			let done = 0;
-			for (const file of files) {
-				if (file.size > 95 * 1024 * 1024) {
-					this.showError(`「${file.name}」超过 95 MB，传不上去。`);
-					continue;
-				}
-				await new Promise<void>((resolve) => {
-					const xhr = new XMLHttpRequest();
-					xhr.open("POST", `/api/drive/upload?name=${encodeURIComponent(file.name)}`);
-					xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
-					xhr.upload.onprogress = (event) => {
-						if (!event.lengthComputable || !bar) return;
-						const current = (done + event.loaded) / Math.max(1, files.reduce((sum, item) => sum + item.size, 0));
-						bar.style.width = `${Math.min(100, current * 100)}%`;
-					};
-					xhr.onload = () => {
-						done += file.size;
-						resolve();
-					};
-					xhr.onerror = () => resolve();
-					xhr.send(file);
-				});
+			if (this.state.view === "shares") {
+				body.className = "d-body";
+				body.innerHTML = this.state.shares.length
+					? `<div class="d-list">${this.state.shares
+							.map(
+								(item) => `<div class="d-row">
+						<div class="d-ico">${ICONS.other}</div>
+						<div class="d-name">${escapeHtml(item.name)}<small>/s/${item.token}</small></div>
+						<div class="d-meta">${fmtDate(item.created)}</div>
+						<div class="d-meta">${item.expires ? (item.expired ? "已过期" : "到期 " + fmtDate(item.expires)) : "永久"}</div>
+						<div class="d-row-actions">
+							<button class="d-btn d-btn-sm" data-act="copy-link" data-url="${escapeHtml(item.url)}">复制</button>
+							<button class="d-icon-btn" data-act="revoke" data-token="${item.token}" title="取消分享">✕</button>
+						</div>
+					</div>`,
+							)
+							.join("")}</div>`
+					: `<div class="d-empty">${ICONS.other}<p>还没有分享链接</p><p class="d-empty-sub">在文件上点「分享」就能生成一条公开链接</p></div>`;
+				return;
 			}
-			if (bar) bar.style.width = "100%";
-			setTimeout(() => {
-				if (progress) progress.hidden = true;
-				if (bar) bar.style.width = "0";
-			}, 500);
-			await this.load();
+
+			const folders = this.state.q ? [] : this.state.folders;
+			const files = this.sortedFiles();
+			if (!folders.length && !files.length) {
+				body.className = "d-body";
+				body.innerHTML = `<div class="d-empty">${ICONS.folder}<p>${this.state.q ? "没找到匹配的文件" : "这里还是空的，拖文件进来吧"}</p></div>`;
+				this.updateSelectAll();
+				return;
+			}
+
+			if (this.state.layout === "grid") {
+				body.className = "d-body d-grid";
+				body.innerHTML = [
+					...folders.map(
+						(folder) => `<div class="d-card d-card-folder" data-open="folder" data-prefix="${escapeHtml(folder.prefix)}" data-act="select-row" data-key="folder:${escapeHtml(folder.prefix)}">
+							<div class="d-card-thumb">${ICONS.folder}</div>
+							<div class="d-card-name">${escapeHtml(folder.name)}</div>
+						</div>`,
+					),
+					...files.map((file) => this.cardHtml(file)),
+				].join("");
+			} else {
+				body.className = "d-body";
+				body.innerHTML = `<div class="d-list">${[
+					...folders.map(
+						(folder) => `<div class="d-row d-row-folder" data-open="folder" data-prefix="${escapeHtml(folder.prefix)}">
+							<label class="d-check"><input type="checkbox" data-act="select-row" data-key="folder:${escapeHtml(folder.prefix)}" ${this.state.selected.has("folder:" + folder.prefix) ? "checked" : ""} /></label>
+							<div class="d-ico d-ico-folder">${ICONS.folder}</div>
+							<div class="d-name">${escapeHtml(folder.name)}</div>
+							<div class="d-meta">文件夹</div>
+							<div class="d-meta"></div>
+							<div class="d-row-actions">
+								<button class="d-icon-btn" data-act="delete-folder" data-prefix="${escapeHtml(folder.prefix)}" title="删除文件夹">🗑</button>
+							</div>
+						</div>`,
+					),
+					...files.map((file) => this.rowHtml(file)),
+				].join("")}</div>`;
+			}
+			this.updateSelectAll();
+		}
+
+		rowHtml(file: DriveFile) {
+			const fav = this.state.favorites.includes(file.key);
+			return `<div class="d-row" data-open="file" data-key="${escapeHtml(file.key)}">
+				<label class="d-check"><input type="checkbox" data-act="select-row" data-key="${escapeHtml(file.key)}" ${this.state.selected.has(file.key) ? "checked" : ""} /></label>
+				<div class="d-ico d-ico-${file.kind}">${iconFor(file)}</div>
+				<div class="d-name">${escapeHtml(file.name)}${fav ? ' <span class="d-fav">★</span>' : ""}</div>
+				<div class="d-meta">${fmtSize(file.size)}</div>
+				<div class="d-meta">${fmtDate(file.uploaded)}</div>
+				<div class="d-row-actions">
+					<button class="d-icon-btn" data-act="preview" data-key="${escapeHtml(file.key)}" title="预览">👁</button>
+					<button class="d-icon-btn" data-act="download" data-key="${escapeHtml(file.key)}" title="下载">⤓</button>
+					<button class="d-icon-btn ${fav ? "on" : ""}" data-act="favorite" data-key="${escapeHtml(file.key)}" title="收藏">${fav ? "★" : "☆"}</button>
+					<button class="d-icon-btn" data-act="share-file" data-key="${escapeHtml(file.key)}" title="分享">🔗</button>
+					<button class="d-icon-btn" data-act="rename" data-key="${escapeHtml(file.key)}" title="重命名">✎</button>
+					<button class="d-icon-btn" data-act="delete-file" data-key="${escapeHtml(file.key)}" title="删除">🗑</button>
+				</div>
+			</div>`;
+		}
+
+		cardHtml(file: DriveFile) {
+			const src = file.kind === "image" ? `/api/drive/file?key=${encodeURIComponent(file.key)}` : "";
+			return `<div class="d-card ${this.state.selected.has(file.key) ? "selected" : ""}" data-open="file" data-key="${escapeHtml(file.key)}">
+				<label class="d-check"><input type="checkbox" data-act="select-row" data-key="${escapeHtml(file.key)}" ${this.state.selected.has(file.key) ? "checked" : ""} /></label>
+				<div class="d-card-thumb">${src ? `<img src="${src}" loading="lazy" alt="" />` : iconFor(file)}</div>
+				<div class="d-card-name">${escapeHtml(file.name)}</div>
+				<div class="d-card-meta">${fmtSize(file.size)}</div>
+				<div class="d-card-actions">
+					<button class="d-icon-btn" data-act="download" data-key="${escapeHtml(file.key)}" title="下载">⤓</button>
+					<button class="d-icon-btn" data-act="delete-file" data-key="${escapeHtml(file.key)}" title="删除">🗑</button>
+				</div>
+			</div>`;
+		}
+
+		updateSelectAll() {
+			const all = this.querySelector("[data-act='select-all']") as HTMLInputElement | null;
+			if (!all || all.type !== "checkbox") return;
+			const total = this.state.files.length + this.state.folders.length;
+			all.checked = total > 0 && this.state.selected.size >= total;
+		}
+
+		renderUsage() {
+			const bar = this.querySelector("[data-usage-bar]") as HTMLElement;
+			const text = this.querySelector("[data-usage-text]") as HTMLElement;
+			if (!bar || !text) return;
+			const { total, count, limit } = this.state.usage;
+			const percent = limit ? Math.min(100, (total / limit) * 100) : 0;
+			bar.style.width = `${percent.toFixed(2)}%`;
+			bar.classList.toggle("warn", percent > 85);
+			text.innerHTML = `${fmtSize(total)} / ${fmtSize(limit || 10 * 1024 ** 3)}<br /><span>${count} 个文件</span>`;
+		}
+
+		renderUploads() {
+			const zone = this.querySelector("[data-uploads]") as HTMLElement;
+			if (!zone) return;
+			if (!this.state.uploads.length) {
+				zone.innerHTML = "";
+				zone.classList.remove("show");
+				return;
+			}
+			zone.classList.add("show");
+			zone.innerHTML = `<div class="d-upload-list">${this.state.uploads
+				.map(
+					(task) => `<div class="d-upload ${task.failed ? "failed" : ""}">
+					<div class="d-upload-name" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</div>
+					<div class="d-upload-bar"><i style="width:${task.progress}%"></i></div>
+					<div class="d-upload-status">${escapeHtml(task.status)}${task.status === "上传中" ? ` ${task.progress}%` : ""}</div>
+				</div>`,
+				)
+				.join("")}</div>`;
+		}
+
+		toast(message: string, kind: "info" | "error" = "info") {
+			const toast = this.querySelector("[data-toast]") as HTMLElement;
+			if (!toast) return;
+			toast.textContent = message;
+			toast.className = `d-toast show ${kind}`;
+			window.clearTimeout((this as any).toastTimer);
+			(this as any).toastTimer = window.setTimeout(() => toast.classList.remove("show"), 2600);
 		}
 	}
 
@@ -304,126 +1111,281 @@ import "@fontsource/roboto/700.css";
 
 <style is:global>
 	:root {
-		--drive-bg: #f7f4fb;
-		--drive-card: rgba(255, 255, 255, 0.82);
-		--drive-text: #2c2a33;
-		--drive-muted: #7a7488;
-		--drive-line: rgba(120, 100, 160, 0.16);
-		--drive-primary: oklch(0.68 0.15 320);
-		--drive-accent: oklch(0.72 0.12 275);
+		--d-ink: #2c2a33;
+		--d-muted: #7b7789;
+		--d-line: rgb(120 96 160 / 0.14);
+		--d-card: rgb(255 255 255 / 0.78);
+		--d-accent: #9a7bd4;
+		--d-accent-2: #f19bc4;
+		--d-danger: #d9636f;
 	}
 
 	* { box-sizing: border-box; }
 
 	body.drive-page {
 		margin: 0;
-		min-height: 100vh;
-		color: var(--drive-text);
-		font-family: "Roboto", system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+		min-height: 100dvh;
+		font-family: "Roboto", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+		color: var(--d-ink);
 		background:
-			radial-gradient(60rem 40rem at 12% 8%, #ffe6f3 0%, transparent 60%),
-			radial-gradient(55rem 38rem at 88% 12%, #e6f1ff 0%, transparent 62%),
-			radial-gradient(50rem 36rem at 50% 100%, #eef0ff 0%, transparent 60%),
-			var(--drive-bg);
+			radial-gradient(60rem 40rem at 8% 0%, #ffe3f0 0%, transparent 60%),
+			radial-gradient(50rem 38rem at 100% 10%, #dfeaff 0%, transparent 58%),
+			radial-gradient(48rem 34rem at 50% 100%, #e5fff5 0%, transparent 60%),
+			linear-gradient(180deg, #fbf9ff 0%, #f6f4fb 100%);
+		background-attachment: fixed;
 	}
 
-	.drive-shell { max-width: 68rem; margin: 0 auto; padding: 1.6rem 1.1rem 4rem; }
+	.d-splash { padding: 4rem; text-align: center; color: var(--d-muted); }
 
-	.drive-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.4rem; }
-
-	.drive-brand { display: flex; align-items: center; gap: 0.65rem; color: inherit; text-decoration: none; }
-	.drive-brand-mark {
-		display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: 0.8rem;
-		background: linear-gradient(135deg, #ffd6ec, #d9e4ff); font-size: 1.1rem;
+	.d-layout {
+		display: grid;
+		grid-template-columns: 15.5rem minmax(0, 1fr);
+		gap: 1.25rem;
+		max-width: 84rem;
+		margin: 0 auto;
+		padding: 1.25rem;
+		min-height: 100dvh;
 	}
-	.drive-brand strong { display: block; font-size: 1.02rem; letter-spacing: 0.01em; }
-	.drive-brand small { display: block; font-size: 0.66rem; letter-spacing: 0.18em; color: var(--drive-muted); }
-	.drive-back-link { font-size: 0.85rem; color: var(--drive-muted); text-decoration: none; }
-	.drive-back-link:hover { color: var(--drive-primary); }
 
-	.drive-card {
-		background: var(--drive-card);
-		border: 1px solid rgba(255, 255, 255, 0.9);
+	/* 侧栏 */
+	.d-side {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1.15rem;
 		border-radius: 1.4rem;
-		padding: 1.4rem;
+		background: var(--d-card);
+		border: 1px solid var(--d-line);
+		box-shadow: 0 1.2rem 3rem rgb(90 70 130 / 0.1);
 		backdrop-filter: blur(14px);
-		box-shadow: 0 1.2rem 3rem rgba(90, 70, 130, 0.12);
+		align-self: start;
+		position: sticky;
+		top: 1.25rem;
 	}
-
-	.drive-loading { padding: 2rem; color: var(--drive-muted); }
-
-	.drive-login { max-width: 26rem; margin: 3.5rem auto; text-align: center; }
-	.drive-lock { font-size: 2rem; }
-	.drive-login h1 { margin: 0.5rem 0 0.35rem; font-size: 1.4rem; }
-	.drive-login p { margin: 0 0 1rem; color: var(--drive-muted); font-size: 0.86rem; line-height: 1.6; }
-	.drive-login form { display: flex; gap: 0.5rem; }
-	.drive-login input, .drive-search input {
-		flex: 1; min-width: 0; padding: 0.62rem 0.8rem; font-size: 0.9rem; color: inherit;
-		border: 1px solid var(--drive-line); border-radius: 0.7rem; background: rgba(255, 255, 255, 0.9);
-		outline: none;
+	.d-brand { display: flex; gap: 0.7rem; align-items: center; text-decoration: none; color: inherit; }
+	.d-brand-mark {
+		display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: 0.85rem;
+		background: linear-gradient(135deg, var(--d-accent), var(--d-accent-2)); color: #fff; font-size: 1.1rem;
 	}
-	.drive-login input:focus, .drive-search input:focus { border-color: var(--drive-primary); }
-	.drive-login button {
-		padding: 0.62rem 1.1rem; font-size: 0.9rem; font-weight: 600; color: #fff; cursor: pointer;
-		border: 0; border-radius: 0.7rem; background: linear-gradient(135deg, var(--drive-primary), var(--drive-accent));
+	.d-brand strong { display: block; font-size: 0.98rem; }
+	.d-brand small { display: block; font-size: 0.62rem; letter-spacing: 0.14em; color: var(--d-muted); }
+
+	.d-nav { display: flex; flex-direction: column; gap: 0.25rem; }
+	.d-nav button {
+		display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.7rem;
+		border: 0; border-radius: 0.75rem; background: transparent; color: var(--d-ink);
+		font: inherit; font-size: 0.9rem; cursor: pointer; text-align: left;
 	}
+	.d-nav button svg { width: 1.05rem; height: 1.05rem; color: var(--d-muted); }
+	.d-nav button:hover { background: rgb(154 123 212 / 0.1); }
+	.d-nav button.active { background: linear-gradient(135deg, rgb(154 123 212 / 0.18), rgb(241 155 196 / 0.16)); color: var(--d-accent); font-weight: 500; }
+	.d-nav button.active svg { color: var(--d-accent); }
 
-	.drive-error { min-height: 1.1rem; margin: 0.6rem 0 0; color: #c2417a; font-size: 0.82rem; }
-	.drive-hint { font-size: 0.75rem; color: var(--drive-muted); }
+	.d-usage { margin-top: auto; font-size: 0.78rem; color: var(--d-muted); }
+	.d-usage-bar { height: 0.4rem; border-radius: 999px; background: rgb(120 96 160 / 0.14); overflow: hidden; }
+	.d-usage-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--d-accent), var(--d-accent-2)); transition: width 0.3s; }
+	.d-usage-bar i.warn { background: linear-gradient(90deg, #f0a35c, var(--d-danger)); }
+	.d-usage p { margin: 0.45rem 0 0; line-height: 1.5; }
+	.d-usage span { opacity: 0.75; }
+	.d-back { font-size: 0.8rem; color: var(--d-muted); text-decoration: none; }
+	.d-back:hover { color: var(--d-accent); }
 
-	.drive-top { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; justify-content: space-between; }
-	.drive-title h1 { margin: 0; font-size: 1.5rem; }
-	.drive-title p { margin: 0.35rem 0 0.5rem; font-size: 0.8rem; color: var(--drive-muted); }
-	.drive-usage { width: 12rem; height: 0.3rem; border-radius: 999px; background: rgba(120, 100, 160, 0.14); overflow: hidden; }
-	.drive-usage span { display: block; width: 0; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--drive-primary), var(--drive-accent)); transition: width 300ms; }
-
-	.drive-actions { display: flex; gap: 0.6rem; align-items: center; }
-	.drive-search input { width: 12rem; }
-	.drive-primary {
-		padding: 0.6rem 1rem; font-size: 0.86rem; font-weight: 600; color: #fff; cursor: pointer;
-		border: 0; border-radius: 0.7rem; background: linear-gradient(135deg, var(--drive-primary), var(--drive-accent));
+	/* 主区 */
+	.d-main { display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
+	.d-top {
+		display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+		padding: 0.85rem 1.1rem; border-radius: 1.2rem; background: var(--d-card);
+		border: 1px solid var(--d-line); box-shadow: 0 0.8rem 2rem rgb(90 70 130 / 0.07); backdrop-filter: blur(14px);
 	}
+	.d-crumbs { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; font-size: 0.95rem; }
+	.d-crumbs button { border: 0; background: transparent; font: inherit; color: var(--d-muted); cursor: pointer; padding: 0.15rem 0.25rem; border-radius: 0.4rem; }
+	.d-crumbs button:hover { color: var(--d-accent); background: rgb(154 123 212 / 0.1); }
+	.d-crumbs button:last-child { color: var(--d-ink); font-weight: 500; }
+	.d-crumb-sep { color: rgb(120 96 160 / 0.4); }
+	.d-crumb-title { font-weight: 500; }
 
-	.drive-drop {
-		display: flex; flex-direction: column; gap: 0.2rem; align-items: center; justify-content: center;
-		margin: 1.1rem 0 1rem; padding: 1.5rem 1rem; text-align: center; font-size: 0.86rem; color: var(--drive-muted);
-		border: 1.5px dashed var(--drive-line); border-radius: 1rem; transition: 200ms;
+	.d-top-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+	.d-search input {
+		width: 12rem; padding: 0.45rem 0.7rem; border-radius: 0.7rem; border: 1px solid var(--d-line);
+		background: rgb(255 255 255 / 0.7); font: inherit; font-size: 0.85rem; color: inherit;
 	}
-	.drive-drop small { font-size: 0.72rem; opacity: 0.75; }
-	.drive-drop.is-over { border-color: var(--drive-primary); background: rgba(255, 214, 236, 0.4); color: var(--drive-primary); }
+	.d-search input:focus { outline: 2px solid rgb(154 123 212 / 0.35); outline-offset: 1px; }
+	.d-sort { padding: 0.42rem 0.5rem; border-radius: 0.7rem; border: 1px solid var(--d-line); background: rgb(255 255 255 / 0.7); font: inherit; font-size: 0.82rem; color: inherit; }
 
-	.drive-progress { height: 0.32rem; margin-bottom: 0.9rem; border-radius: 999px; background: rgba(120, 100, 160, 0.14); overflow: hidden; }
-	.drive-progress span { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--drive-primary), var(--drive-accent)); transition: width 200ms; }
-
-	.drive-list { display: flex; flex-direction: column; gap: 0.5rem; }
-	.drive-empty { padding: 2rem 0; text-align: center; color: var(--drive-muted); font-size: 0.88rem; }
-
-	.drive-item {
-		display: flex; align-items: center; gap: 0.85rem; padding: 0.5rem; border-radius: 0.9rem;
-		background: rgba(255, 255, 255, 0.7); border: 1px solid rgba(255, 255, 255, 0.9);
+	.d-btn {
+		display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.45rem 0.8rem; border-radius: 0.7rem;
+		border: 1px solid var(--d-line); background: rgb(255 255 255 / 0.8); color: var(--d-ink);
+		font: inherit; font-size: 0.85rem; cursor: pointer; text-decoration: none; white-space: nowrap;
 	}
-	.drive-thumb {
-		display: grid; place-items: center; width: 3.2rem; height: 3.2rem; flex: none; overflow: hidden;
-		border-radius: 0.7rem; background: linear-gradient(135deg, #ffe9f4, #e8efff); text-decoration: none;
-	}
-	.drive-thumb img { width: 100%; height: 100%; object-fit: cover; }
-	.drive-icon { font-size: 1.2rem; }
-	.drive-meta { flex: 1; min-width: 0; }
-	.drive-meta strong { display: block; font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.drive-meta small { color: var(--drive-muted); font-size: 0.74rem; }
-	.drive-item-actions { display: flex; gap: 0.4rem; align-items: center; }
-	.drive-item-actions a, .drive-item-actions button {
-		padding: 0.35rem 0.7rem; font-size: 0.78rem; color: var(--drive-muted); text-decoration: none; cursor: pointer;
-		background: rgba(255, 255, 255, 0.9); border: 1px solid var(--drive-line); border-radius: 0.55rem;
-	}
-	.drive-item-actions a:hover { color: var(--drive-accent); border-color: var(--drive-accent); }
-	.drive-item-actions button:hover { color: #c2417a; border-color: #e9a8c6; }
+	.d-btn:hover { border-color: rgb(154 123 212 / 0.5); color: var(--d-accent); }
+	.d-btn-sm { padding: 0.3rem 0.55rem; font-size: 0.78rem; }
+	.d-btn-primary { background: linear-gradient(135deg, var(--d-accent), var(--d-accent-2)); border: 0; color: #fff; font-weight: 500; }
+	.d-btn-primary:hover { color: #fff; filter: brightness(1.04); }
+	.d-btn-danger { color: var(--d-danger); border-color: rgb(217 99 111 / 0.35); }
+	.d-btn-danger:hover { border-color: var(--d-danger); color: var(--d-danger); }
 
-	@media (max-width: 640px) {
-		.drive-actions { width: 100%; }
-		.drive-search { flex: 1; }
-		.drive-search input { width: 100%; }
-		.drive-top { align-items: stretch; }
-		.drive-item-actions a, .drive-item-actions button { padding: 0.3rem 0.5rem; }
+	.d-icon-btn {
+		display: grid; place-items: center; width: 1.9rem; height: 1.9rem; border-radius: 0.55rem;
+		border: 1px solid transparent; background: transparent; color: var(--d-muted); font-size: 0.85rem; cursor: pointer;
+	}
+	.d-icon-btn:hover { background: rgb(154 123 212 / 0.12); color: var(--d-accent); border-color: rgb(154 123 212 / 0.25); }
+	.d-icon-btn.on { color: #e8a33d; }
+
+	.d-toolbar {
+		display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; min-height: 2.2rem;
+		padding: 0 0.35rem; font-size: 0.85rem; color: var(--d-muted);
+	}
+	.d-check-all { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+	.d-tool-text { opacity: 0.9; }
+	.d-bulk { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+	.d-body {
+		flex: 1; min-height: 20rem; padding: 0.4rem; border-radius: 1.2rem;
+		background: var(--d-card); border: 1px dashed transparent; backdrop-filter: blur(10px);
+		box-shadow: 0 0.8rem 2rem rgb(90 70 130 / 0.07);
+	}
+	.d-body.dragover { border-color: var(--d-accent); background: rgb(154 123 212 / 0.08); }
+
+	.d-list { display: flex; flex-direction: column; }
+	.d-row {
+		display: grid; grid-template-columns: 1.6rem 2rem minmax(0, 1fr) 6rem 9rem auto;
+		align-items: center; gap: 0.6rem; padding: 0.5rem 0.6rem; border-radius: 0.7rem; cursor: default;
+	}
+	.d-row:hover { background: rgb(154 123 212 / 0.08); }
+	.d-check { display: grid; place-items: center; }
+	.d-check input { width: 0.95rem; height: 0.95rem; accent-color: var(--d-accent); cursor: pointer; }
+	.d-ico { display: grid; place-items: center; width: 1.9rem; height: 1.9rem; border-radius: 0.55rem; background: rgb(154 123 212 / 0.1); color: var(--d-accent); }
+	.d-ico svg { width: 1.05rem; height: 1.05rem; }
+	.d-ico-folder { background: rgb(241 200 120 / 0.22); color: #d99a2b; }
+	.d-ico-image { background: rgb(126 200 255 / 0.2); color: #3f8fd0; }
+	.d-ico-audio { background: rgb(180 160 255 / 0.2); color: #7d63c9; }
+	.d-ico-video { background: rgb(255 160 190 / 0.2); color: #c85f88; }
+	.d-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
+	.d-name small { display: block; font-size: 0.7rem; color: var(--d-muted); opacity: 0.8; overflow: hidden; text-overflow: ellipsis; }
+	.d-fav { color: #e8a33d; }
+	.d-meta { font-size: 0.78rem; color: var(--d-muted); white-space: nowrap; }
+	.d-row-actions { display: flex; gap: 0.1rem; justify-content: flex-end; opacity: 0; transition: opacity 0.15s; }
+	.d-row:hover .d-row-actions { opacity: 1; }
+
+	.d-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.8rem; padding: 0.8rem; align-content: start; grid-auto-rows: min-content; }
+	.d-card {
+		position: relative; display: flex; flex-direction: column; gap: 0.3rem; padding: 0.6rem;
+		border-radius: 0.9rem; background: rgb(255 255 255 / 0.75); border: 1px solid var(--d-line);
+		cursor: pointer; overflow: hidden;
+	}
+	.d-card:hover { border-color: rgb(154 123 212 / 0.45); transform: translateY(-1px); }
+	.d-card.selected { border-color: var(--d-accent); background: rgb(154 123 212 / 0.1); }
+	.d-card .d-check { position: absolute; top: 0.45rem; left: 0.45rem; z-index: 1; }
+	.d-card-thumb {
+		display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: 0.6rem;
+		background: rgb(154 123 212 / 0.08); color: var(--d-accent); overflow: hidden;
+	}
+	.d-card-thumb svg { width: 1.8rem; height: 1.8rem; }
+	.d-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+	.d-card-name { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.d-card-meta { font-size: 0.7rem; color: var(--d-muted); }
+	.d-card-actions { position: absolute; right: 0.35rem; top: 0.35rem; display: flex; gap: 0.1rem; opacity: 0; transition: opacity 0.15s; background: rgb(255 255 255 / 0.85); border-radius: 0.5rem; }
+	.d-card:hover .d-card-actions { opacity: 1; }
+
+	.d-empty { display: grid; place-items: center; gap: 0.4rem; padding: 4rem 1rem; color: var(--d-muted); text-align: center; }
+	.d-empty svg { width: 2.4rem; height: 2.4rem; opacity: 0.5; }
+	.d-empty p { margin: 0; font-size: 0.9rem; }
+	.d-empty-sub { font-size: 0.78rem; opacity: 0.8; }
+
+	/* 上传队列 */
+	.d-uploads { display: none; }
+	.d-uploads.show { display: block; }
+	.d-upload-list { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.7rem 0.9rem; border-radius: 1rem; background: var(--d-card); border: 1px solid var(--d-line); }
+	.d-upload { display: grid; grid-template-columns: minmax(0, 1fr) 8rem 7rem; gap: 0.6rem; align-items: center; font-size: 0.8rem; }
+	.d-upload-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.d-upload-bar { height: 0.35rem; border-radius: 999px; background: rgb(120 96 160 / 0.15); overflow: hidden; }
+	.d-upload-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--d-accent), var(--d-accent-2)); transition: width 0.2s; }
+	.d-upload-status { color: var(--d-muted); text-align: right; }
+	.d-upload.failed .d-upload-status { color: var(--d-danger); }
+
+	/* 登录 */
+	.d-auth { display: grid; place-items: center; min-height: 100dvh; padding: 1.5rem; }
+	.d-auth-card {
+		width: min(22rem, 100%); padding: 2rem 1.75rem; border-radius: 1.4rem; text-align: center;
+		background: var(--d-card); border: 1px solid var(--d-line); box-shadow: 0 1.5rem 4rem rgb(90 70 130 / 0.14); backdrop-filter: blur(14px);
+	}
+	.d-auth-icon { font-size: 1.8rem; }
+	.d-auth-card h1 { margin: 0.5rem 0 0.35rem; font-size: 1.35rem; }
+	.d-auth-card p { margin: 0 0 1rem; font-size: 0.85rem; color: var(--d-muted); line-height: 1.6; }
+	.d-auth-card form { display: flex; gap: 0.5rem; }
+	.d-auth-card input {
+		flex: 1; min-width: 0; padding: 0.55rem 0.75rem; border-radius: 0.7rem; border: 1px solid var(--d-line);
+		background: rgb(255 255 255 / 0.85); font: inherit; font-size: 0.9rem;
+	}
+	.d-auth-card button { padding: 0.55rem 1rem; border-radius: 0.7rem; border: 0; background: linear-gradient(135deg, var(--d-accent), var(--d-accent-2)); color: #fff; font: inherit; font-weight: 500; cursor: pointer; }
+	.d-auth-error { margin-top: 0.8rem; color: var(--d-danger) !important; }
+	.d-auth-foot { margin-top: 1rem !important; font-size: 0.78rem !important; }
+	.d-auth-foot a { color: var(--d-muted); }
+
+	/* 弹层 */
+	.d-modal {
+		position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 1.5rem;
+		background: rgb(28 24 38 / 0.55); backdrop-filter: blur(4px);
+	}
+	.d-modal[hidden] { display: none; }
+	.d-modal > * { pointer-events: auto; }
+	.d-modal { pointer-events: auto; }
+	.d-modal:not([hidden]) { display: grid; }
+	.d-modal-head {
+		position: absolute; top: 1rem; left: 50%; transform: translateX(-50%);
+		display: flex; align-items: center; gap: 1rem; max-width: min(56rem, 92vw);
+		padding: 0.5rem 0.8rem; border-radius: 0.8rem; background: rgb(255 255 255 / 0.92); font-size: 0.85rem;
+	}
+	.d-modal-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw; }
+	.d-modal-head > div { display: flex; gap: 0.35rem; align-items: center; }
+	.d-modal-body { max-width: min(56rem, 92vw); max-height: 82vh; display: grid; place-items: center; }
+	.d-modal-body img { max-width: 100%; max-height: 82vh; border-radius: 0.8rem; }
+	.d-modal-body video { max-width: 100%; max-height: 82vh; border-radius: 0.8rem; }
+	.d-modal-body iframe { width: min(52rem, 92vw); height: 80vh; border: 0; border-radius: 0.8rem; background: #fff; }
+	.d-text {
+		margin: 4rem 0 0; padding: 1rem; max-width: min(52rem, 92vw); max-height: 74vh; overflow: auto;
+		background: #fff; border-radius: 0.8rem; font-size: 0.82rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+	}
+	.d-audio { display: grid; gap: 1rem; justify-items: center; padding: 2rem 3rem; border-radius: 1rem; background: rgb(255 255 255 / 0.95); }
+	.d-audio-icon { font-size: 2.2rem; color: var(--d-accent); }
+	.d-audio audio { width: min(28rem, 80vw); }
+	.d-no-preview { display: grid; gap: 0.8rem; justify-items: center; padding: 2rem 2.5rem; border-radius: 1rem; background: rgb(255 255 255 / 0.95); font-size: 0.9rem; }
+	.d-share-body { display: grid; gap: 0.8rem; width: min(30rem, 90vw); padding: 4.5rem 1.2rem 1.2rem; border-radius: 1rem; background: rgb(255 255 255 / 0.96); font-size: 0.85rem; }
+	.d-share-body p { margin: 0; color: var(--d-muted); line-height: 1.6; }
+	.d-share-input { width: 100%; padding: 0.55rem 0.7rem; border-radius: 0.6rem; border: 1px solid var(--d-line); font: inherit; font-size: 0.82rem; }
+	.d-share-actions { display: flex; gap: 0.5rem; }
+
+	.d-toast {
+		position: fixed; left: 50%; bottom: 1.6rem; transform: translate(-50%, 1rem); z-index: 80;
+		padding: 0.6rem 1.1rem; border-radius: 999px; background: rgb(44 42 51 / 0.92); color: #fff;
+		font-size: 0.85rem; opacity: 0; transition: opacity 0.2s, transform 0.2s; pointer-events: none;
+	}
+	.d-toast.show { opacity: 1; transform: translate(-50%, 0); }
+	.d-toast.error { background: rgb(190 70 84 / 0.95); }
+	.d-toast[hidden] { display: none; }
+
+	.d-drop-hint {
+		position: fixed; inset: 1rem; z-index: 70; display: none; place-items: center;
+		border: 2px dashed var(--d-accent); border-radius: 1.2rem; background: rgb(154 123 212 / 0.1);
+		color: var(--d-accent); font-size: 1rem; font-weight: 500; pointer-events: none;
+	}
+	.d-drop-hint.show { display: grid; }
+
+	@media (max-width: 860px) {
+		.d-layout { grid-template-columns: 1fr; padding: 0.8rem; }
+		.d-side { position: static; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+		.d-brand small { display: none; }
+		.d-nav { flex-direction: row; flex-wrap: wrap; gap: 0.2rem; }
+		.d-nav button { padding: 0.4rem 0.55rem; font-size: 0.82rem; }
+		.d-nav button span { display: none; }
+		.d-usage { flex: 1 0 100%; margin-top: 0.2rem; }
+		.d-back { display: none; }
+		.d-top { padding: 0.7rem 0.8rem; }
+		.d-search input { width: 8rem; }
+		.d-row { grid-template-columns: 1.4rem 1.8rem minmax(0, 1fr) auto; }
+		.d-row .d-meta { display: none; }
+		.d-row-actions { opacity: 1; }
+		.d-upload { grid-template-columns: minmax(0, 1fr) 5rem; }
+		.d-upload-status { grid-column: 1 / -1; text-align: left; }
 	}
 </style>
