@@ -65,6 +65,7 @@ import "@fontsource/roboto/700.css";
 		usage: { total: number; count: number; limit: number };
 		uploads: UploadTask[];
 		busy: boolean;
+		loading: boolean;
 	};
 
 	const fmtSize = (bytes: number) => {
@@ -124,15 +125,43 @@ import "@fontsource/roboto/700.css";
 			usage: { total: 0, count: 0, limit: 0 },
 			uploads: [],
 			busy: false,
+			loading: true,
 		};
 
 		started = false;
 		uploadSeq = 0;
+		/* 上一次渲染列表的指纹：内容没变就不重播入场动画，避免「点一下整屏闪一下」 */
+		lastFingerprint = "";
 
 		async connectedCallback() {
 			if (this.started) return;
 			this.started = true;
+			this.innerHTML = `<div class="d-boot"><div class="d-spinner"></div><p>正在打开网盘…</p></div>`;
 			await this.boot();
+		}
+
+		/** 载入中：顶栏进度条 + 内容区骨架屏（点击后立刻有反馈，不出现空白跳变） */
+		setLoading(on: boolean) {
+			this.state.loading = on;
+			const layout = this.querySelector(".d-layout") as HTMLElement | null;
+			if (layout) layout.classList.toggle("loading", on);
+			const bar = this.querySelector("[data-progress]") as HTMLElement | null;
+			if (bar) bar.classList.toggle("on", on);
+			const body = this.querySelector("[data-body]") as HTMLElement | null;
+			if (on && body) this.renderSkeleton(body);
+		}
+
+		renderSkeleton(body: HTMLElement) {
+			const count = this.state.layout === "grid" ? 8 : 6;
+			const item =
+				this.state.layout === "grid"
+					? `<div class="d-card d-skel"><div class="d-skel-thumb"></div><div class="d-skel-line w70"></div><div class="d-skel-line w40"></div></div>`
+					: `<div class="d-row d-skel"><div class="d-skel-dot"></div><div class="d-skel-line w60"></div><div class="d-skel-line w20"></div><div class="d-skel-line w20"></div></div>`;
+			body.className = this.state.layout === "grid" ? "d-body d-grid" : "d-body";
+			body.innerHTML =
+				this.state.layout === "grid"
+					? Array.from({ length: count }, () => item).join("")
+					: `<div class="d-list">${Array.from({ length: count }, () => item).join("")}</div>`;
 		}
 
 		async boot() {
@@ -181,6 +210,9 @@ import "@fontsource/roboto/700.css";
 
 		async refresh() {
 			const { view } = this.state;
+			/* 先把骨架屏推上去，再发请求：点一下立刻有反应，不会先空白再突然跳内容 */
+			this.setLoading(true);
+			await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 90)));
 			try {
 				if (view === "files") await this.loadFiles();
 				else if (view === "favorites") await this.loadFavorites();
@@ -191,6 +223,7 @@ import "@fontsource/roboto/700.css";
 				if (this.state.authed === false) return;
 				this.toast((error as Error).message, "error");
 			}
+			this.setLoading(false);
 			this.render();
 		}
 
@@ -306,6 +339,7 @@ import "@fontsource/roboto/700.css";
 							</div>
 						</header>
 						<div class="d-toolbar" data-toolbar></div>
+						<div class="d-progress" data-progress><i></i></div>
 						<section class="d-body" data-body></section>
 						<div class="d-uploads" data-uploads></div>
 					</main>
@@ -869,6 +903,32 @@ import "@fontsource/roboto/700.css";
 			this.renderBody();
 			this.renderUsage();
 			this.renderUploads();
+			this.applyMotion();
+		}
+
+		/**
+		 * 列表逐项浮入：给每项一个 --i 做 stagger。
+		 * 内容没变就加 .no-anim，避免「收藏一下整屏重播动画」。
+		 */
+		applyMotion() {
+			const body = this.querySelector("[data-body]") as HTMLElement | null;
+			if (!body) return;
+			const fingerprint = [
+				this.state.view,
+				this.state.prefix,
+				this.state.q,
+				this.state.layout,
+				this.state.folders.map((f) => f.prefix).join(","),
+				this.state.files.map((f) => f.key).join(","),
+				this.state.trash.map((t) => t.id).join(","),
+				this.state.shares.map((s) => s.token).join(","),
+			].join("|");
+			const replay = fingerprint !== this.lastFingerprint;
+			this.lastFingerprint = fingerprint;
+			body.classList.toggle("no-anim", !replay);
+			if (!replay) return;
+			const items = body.querySelectorAll<HTMLElement>(".d-list > *, .d-body.d-grid > *");
+			items.forEach((el, index) => el.style.setProperty("--i", String(Math.min(index, 14))));
 		}
 
 		renderSidebar() {
@@ -1245,6 +1305,71 @@ import "@fontsource/roboto/700.css";
 		box-shadow: 0 0.8rem 2rem rgb(90 70 130 / 0.07);
 	}
 	.d-body.dragover { border-color: var(--d-accent); background: rgb(154 123 212 / 0.08); }
+
+	/* ---------- 动效 ---------- */
+	@keyframes d-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+	@keyframes d-pop { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+	@keyframes d-fade { from { opacity: 0; } to { opacity: 1; } }
+	@keyframes d-spin { to { transform: rotate(360deg); } }
+	@keyframes d-shimmer { from { background-position: 180% 0; } to { background-position: -80% 0; } }
+	@keyframes d-indeterminate {
+		0% { transform: translateX(-100%) scaleX(0.35); }
+		50% { transform: translateX(25%) scaleX(0.6); }
+		100% { transform: translateX(110%) scaleX(0.35); }
+	}
+
+	/* 列表/网格逐项浮入；内容没变时不重播（.no-anim） */
+	.d-list > *, .d-grid > * { animation: d-fade-up 0.34s cubic-bezier(0.22, 0.85, 0.3, 1) backwards; animation-delay: calc(var(--i, 0) * 16ms); }
+	.d-body.no-anim .d-list > *, .d-body.no-anim .d-grid > * { animation: none; }
+
+	/* 顶部进度条 */
+	.d-progress { height: 2px; border-radius: 999px; overflow: hidden; opacity: 0; transition: opacity 0.18s; }
+	.d-progress.on { opacity: 1; background: rgb(154 123 212 / 0.12); }
+	.d-progress i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--d-accent), var(--d-accent-2)); transform: translateX(-100%) scaleX(0.35); }
+	.d-progress.on i { animation: d-indeterminate 1.05s ease-in-out infinite; }
+
+	/* 首屏 loading */
+	.d-boot { display: grid; place-items: center; gap: 0.9rem; padding: 6rem 1rem; color: var(--d-muted); font-size: 0.9rem; }
+	.d-boot p { margin: 0; }
+	.d-spinner { width: 1.8rem; height: 1.8rem; border-radius: 50%; border: 2px solid rgb(154 123 212 / 0.25); border-top-color: var(--d-accent); animation: d-spin 0.8s linear infinite; }
+
+	/* 骨架屏 */
+	.d-skel { pointer-events: none; animation: none; }
+	.d-row.d-skel { grid-template-columns: 1.6rem minmax(0, 1fr) 6rem 9rem; }
+	.d-skel-dot { width: 1.6rem; height: 1.6rem; border-radius: 0.5rem; background: rgb(120 96 160 / 0.1); }
+	.d-skel-line, .d-skel-thumb {
+		border-radius: 0.5rem;
+		background: linear-gradient(90deg, rgb(120 96 160 / 0.07) 25%, rgb(120 96 160 / 0.14) 37%, rgb(120 96 160 / 0.07) 63%);
+		background-size: 220% 100%; animation: d-shimmer 1.2s linear infinite;
+	}
+	.d-skel-line { height: 0.72rem; }
+	.d-skel-line.w70 { width: 70%; }
+	.d-skel-line.w60 { width: 60%; }
+	.d-skel-line.w40 { width: 40%; }
+	.d-skel-line.w20 { width: 20%; }
+	.d-skel-thumb { aspect-ratio: 4 / 3; }
+
+	/* 弹层 */
+	.d-modal:not([hidden]) { animation: d-fade 0.16s ease; }
+	.d-modal:not([hidden]) .d-modal-head,
+	.d-modal:not([hidden]) .d-modal-body,
+	.d-modal:not([hidden]) .d-share-body { animation: d-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+
+	/* 按钮按下去要动一下 */
+	.d-btn, .d-icon-btn, .d-nav button, .d-card { transition: transform 0.12s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease; }
+	.d-btn:active, .d-icon-btn:active, .d-nav button:active { transform: scale(0.955); }
+	.d-card:active { transform: scale(0.985); }
+	.d-nav button { position: relative; }
+	.d-nav button::before {
+		content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: 0; border-radius: 999px;
+		background: var(--d-accent); transform: translateY(-50%); transition: height 0.22s ease;
+	}
+	.d-nav button.active::before { height: 1.1rem; }
+
+	@media (prefers-reduced-motion: reduce) {
+		.d-list > *, .d-grid > *, .d-modal:not([hidden]) *, .d-modal:not([hidden]), .d-progress.on i, .d-spinner, .d-skel-line, .d-skel-thumb { animation: none !important; }
+		.d-btn, .d-icon-btn, .d-card, .d-nav button, .d-usage-bar i { transition: none; }
+	}
 
 	.d-list { display: flex; flex-direction: column; }
 	.d-row {

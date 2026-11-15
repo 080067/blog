@@ -16,7 +16,10 @@ export const siteConfig: SiteConfig = {
 		credit: { enable: false, text: "", url: "" },
 	},
 	toc: { enable: true, depth: 2 },
-	favicon: [{ src: "/images/avatar.jpg", sizes: "any" }],
+	favicon: [
+		{ src: "/images/favicon-rc-32.png", sizes: "32x32" },
+		{ src: "/images/favicon-rc-180.png", sizes: "180x180" },
+	],
 };
 
 export const navBarConfig: NavBarConfig = {
@@ -26,6 +29,7 @@ export const navBarConfig: NavBarConfig = {
 		{ name: "日记", url: "/diary/" },
 		{ name: "音乐", url: "/music/" },
 		{ name: "作品集", url: "/works/" },
+		{ name: "网盘", url: "/drive/" },
 		{ name: "留言板", url: "/guestbook/" },
 		{ name: "联系我", url: "/contact/" },
 		LinkPreset.About,
