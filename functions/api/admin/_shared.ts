@@ -64,6 +64,9 @@ const securityHeaders = {
 	"referrer-policy": "strict-origin-when-cross-origin",
 	"permissions-policy": "camera=(), microphone=(), geolocation=()",
 	"strict-transport-security": "max-age=31536000; includeSubDomains",
+	// 所有 JSON 接口一律不缓存：中间层（CDN/代理）缓存了列表接口会让「点文件夹没反应」。
+	"cache-control": "no-store, no-cache, must-revalidate",
+	"pragma": "no-cache",
 };
 
 function base64Encode(bytes: Uint8Array) {
