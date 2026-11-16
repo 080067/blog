@@ -38,7 +38,11 @@ function b64url(bytes: Uint8Array): string {
 function b64urlDecode(value: string): string | null {
 	try {
 		const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-		return atob(normalized + "=".repeat((4 - (normalized.length % 4)) % 4));
+		// atob 给出的是 latin1 字节串，文件名里有中文，必须再按 UTF-8 解码一次，
+		// 否则校验签名时拿到的字符串和签名时不一致，所有链接都会被判「失效」。
+		const binary = atob(normalized + "=".repeat((4 - (normalized.length % 4)) % 4));
+		const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+		return new TextDecoder().decode(bytes);
 	} catch {
 		return null;
 	}
@@ -89,11 +93,16 @@ export async function signedUrl(
 	key: string,
 	download = false,
 ): Promise<string> {
-	const expiresAt = Math.floor(Date.now() / 1000) + SIGN_TTL_SECONDS;
+	// 过期时间对齐到「当前整点 + TTL」：同一小时内同一文件生成的 URL 完全一致，
+	// 阿里云 CDN 才能命中缓存；否则每次列目录都换一个 URL，缓存永远 MISS。
+	const hourStart = Math.floor(Date.now() / 3600000) * 3600;
+	const expiresAt = hourStart + SIGN_TTL_SECONDS;
 	const token = await makeToken(secret, key, expiresAt);
 	const name = key.split("/").pop() || key;
-	const query = download ? "?download=1" : "";
-	return `${origin}/f/${token}/${encodeURIComponent(name)}${query}`;
+	// 下载版多一段 `/dl/`：CDN 的缓存 key 是「路径」，用查询串区分会被忽略，
+	// 结果「下载」拿到的是 inline 的缓存副本（点下载反而在浏览器里打开）。
+	const path = download ? `/f/${token}/dl/${encodeURIComponent(name)}` : `/f/${token}/${encodeURIComponent(name)}`;
+	return `${origin}${path}`;
 }
 
 const MIME: Record<string, string> = {
@@ -148,9 +157,10 @@ export async function serveSigned(
 	bucket: R2BucketLike,
 	key: string,
 	request: Request,
+	options: { download?: boolean } = {},
 ): Promise<Response> {
 	const url = new URL(request.url);
-	const wantsDownload = Boolean(url.searchParams.get("download"));
+	const wantsDownload = options.download ?? Boolean(url.searchParams.get("download"));
 	const rangeHeader = request.headers.get("range");
 	const name = key.split("/").pop() || key;
 	const headers = new Headers({

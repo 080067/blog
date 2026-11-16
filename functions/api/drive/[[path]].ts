@@ -1,5 +1,6 @@
 import type { Env } from "../admin/_shared";
 import { authenticate, handleError, json, unauthorized } from "../admin/_shared";
+import { signedUrl, signatureSecret } from "../../_lib/signed";
 
 /**
  * 私人网盘 API（存储落在 Cloudflare R2）
@@ -159,25 +160,42 @@ function parentOf(key: string) {
 	return index === -1 ? "" : clean.slice(0, index + 1);
 }
 
-function fileUrl(key: string, download = false) {
-	const params = new URLSearchParams({ key });
+/** CDN 域名：文件直链走它，命中阿里香港节点缓存后不再跨境回源 */
+const CDN_ORIGIN = "https://cdn.nihilism.cloud";
+
+function apiFileUrl(fileKey: string, download = false) {
+	const params = new URLSearchParams({ key: fileKey });
 	if (download) params.set("download", "1");
 	return `/api/drive/file?${params.toString()}`;
 }
 
-function describe(object: R2ObjectLike, favorites?: Set<string>) {
-	const key = object.key;
+/**
+ * 文件地址：能签名就走 CDN 直链（6 小时有效的私有链接），
+ * 没配密钥就退回同源接口，保证功能不会因为少一个变量而坏掉。
+ */
+async function fileUrl(env: DriveEnv, fileKey: string, download = false) {
+	const secret = signatureSecret(env as unknown as Record<string, unknown>);
+	if (!secret) return apiFileUrl(fileKey, download);
+	try {
+		return await signedUrl(secret, CDN_ORIGIN, fileKey, download);
+	} catch {
+		return apiFileUrl(fileKey, download);
+	}
+}
+
+async function describe(object: R2ObjectLike, favorites: Set<string> | undefined, env: DriveEnv) {
+	const fileKey = object.key;
 	const uploaded = object.uploaded instanceof Date ? object.uploaded.toISOString() : String(object.uploaded);
 	return {
-		key,
-		name: baseName(key),
+		key: fileKey,
+		name: baseName(fileKey),
 		size: object.size,
 		uploaded,
-		type: object.httpMetadata?.contentType || contentTypeFor(key),
-		kind: kindOf(key),
-		favorite: favorites ? favorites.has(key) : false,
-		url: fileUrl(key),
-		download: fileUrl(key, true),
+		type: object.httpMetadata?.contentType || contentTypeFor(fileKey),
+		kind: kindOf(fileKey),
+		favorite: favorites ? favorites.has(fileKey) : false,
+		url: await fileUrl(env, fileKey),
+		download: await fileUrl(env, fileKey, true),
 	};
 }
 
@@ -338,7 +356,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 
 			if (query) {
 				// 全量搜索：最多扫描 5000 个对象
-				const files: ReturnType<typeof describe>[] = [];
+				const files: Awaited<ReturnType<typeof describe>>[] = [];
 				let cursor: string | undefined;
 				let scanned = 0;
 				do {
@@ -346,7 +364,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 					for (const object of page.objects) {
 						scanned += 1;
 						if (isReserved(object.key)) continue;
-						if (baseName(object.key).toLowerCase().includes(query)) files.push(describe(object, favorites));
+						if (baseName(object.key).toLowerCase().includes(query)) files.push(await describe(object, favorites, env));
 					}
 					cursor = page.truncated ? page.cursor : undefined;
 				} while (cursor && scanned < 5000);
@@ -355,10 +373,12 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 			}
 
 			const result = await bucket.list({ prefix, delimiter: "/", limit: MAX_LIMIT });
-			const files = result.objects
-				.filter((object) => !isReserved(object.key) && !baseName(object.key).startsWith("."))
-				.map((object) => describe(object, favorites))
-				.sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"));
+			const files: Awaited<ReturnType<typeof describe>>[] = [];
+			for (const object of result.objects) {
+				if (isReserved(object.key) || baseName(object.key).startsWith(".")) continue;
+				files.push(await describe(object, favorites, env));
+			}
+			files.sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"));
 			const folders = (result.delimitedPrefixes || [])
 				.filter((item) => !isReserved(item))
 				.map((item) => ({ prefix: item, name: baseName(item) }))
@@ -432,7 +452,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 				httpMetadata: { contentType: request.headers.get("content-type") || contentTypeFor(key) },
 			});
 			const meta = await loadMeta(bucket);
-			return json({ ok: true, file: describe({ key, size: buffer.byteLength, uploaded: new Date() } as R2ObjectLike, new Set(meta.favorites)) });
+			return json({ ok: true, file: await describe({ key, size: buffer.byteLength, uploaded: new Date() } as R2ObjectLike, new Set(meta.favorites), env) });
 		}
 
 		// ---- 大文件分片（R2 multipart）----
@@ -468,7 +488,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 			const upload = bucket.resumeMultipartUpload(key, uploadId);
 			const object = await upload.complete(body.parts);
 			const meta = await loadMeta(bucket);
-			return json({ ok: true, file: describe(object, new Set(meta.favorites)) });
+			return json({ ok: true, file: await describe(object, new Set(meta.favorites), env) });
 		}
 
 		if (action === "mp-abort" && method === "POST") {
@@ -649,7 +669,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Drive
 			const files = [];
 			for (const key of meta.favorites) {
 				const object = await bucket.head(key);
-				if (object) files.push(describe(object, favorites));
+				if (object) files.push(await describe(object, favorites, env));
 			}
 			return json({ files });
 		}
