@@ -10,8 +10,7 @@ import "@fontsource/roboto/700.css";
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width" />
 		<meta name="robots" content="noindex,nofollow" />
-		<link rel="icon" href="/images/favicon-rc-32.png" sizes="32x32" type="image/png" />
-		<link rel="icon" href="/images/favicon-rc-180.png" sizes="180x180" type="image/png" />
+		<link rel="icon" href="/images/avatar.svg" type="image/svg+xml" />
 		<title>我的网盘 · 39の寧靜之地</title>
 	</head>
 	<body class="drive-page" data-pagefind-ignore>
@@ -270,8 +269,14 @@ import "@fontsource/roboto/700.css";
 		}
 
 		async loadUsage() {
-			const data = await this.request("usage");
-			this.state.usage = data as { total: number; count: number; limit: number };
+			// 跨境线路偶尔会把响应截断，这时不要用空对象覆盖，界面会显示成「0 B / undefined 个文件」
+			try {
+				const data = (await this.request("usage")) as { total?: number; count?: number; limit?: number };
+				if (typeof data?.total !== "number" || typeof data?.count !== "number") throw new Error("用量数据不完整");
+				this.state.usage = { total: data.total, count: data.count, limit: typeof data.limit === "number" ? data.limit : this.state.usage.limit };
+			} catch {
+				this.state.usage = { ...this.state.usage, count: Number.isFinite(this.state.usage.count) ? this.state.usage.count : 0 };
+			}
 		}
 
 		/* ---------------- 渲染：登录 ---------------- */
@@ -1257,10 +1262,13 @@ import "@fontsource/roboto/700.css";
 			const text = this.querySelector("[data-usage-text]") as HTMLElement;
 			if (!bar || !text) return;
 			const { total, count, limit } = this.state.usage;
-			const percent = limit ? Math.min(100, (total / limit) * 100) : 0;
+			const safeTotal = Number.isFinite(total) ? total : 0;
+			const safeCount = Number.isFinite(count) ? count : 0;
+			const safeLimit = Number.isFinite(limit) && limit ? limit : 200 * 1024 ** 3;
+			const percent = Math.min(100, (safeTotal / safeLimit) * 100);
 			bar.style.width = `${percent.toFixed(2)}%`;
 			bar.classList.toggle("warn", percent > 85);
-			text.innerHTML = `${fmtSize(total)} / ${fmtSize(limit || 200 * 1024 ** 3)}<br /><span>${count} 个文件</span>`;
+			text.innerHTML = `${fmtSize(safeTotal)} / ${fmtSize(safeLimit)}<br /><span>${safeCount} 个文件</span>`;
 		}
 
 		renderUploads() {
@@ -1301,7 +1309,7 @@ import "@fontsource/roboto/700.css";
 		--d-ink: #2c2a33;
 		--d-muted: #6f6a7d;
 		--d-line: rgb(120 96 160 / 0.16);
-		--d-card: rgb(255 255 255 / 0.58);
+		--d-card: rgb(255 255 255 / 0.46);
 		--d-accent: #9a7bd4;
 		--d-accent-2: #f19bc4;
 		--d-danger: #d9636f;
@@ -1317,10 +1325,11 @@ import "@fontsource/roboto/700.css";
 		color: var(--d-ink);
 		background-color: #efe9f6;
 		background-image:
-			linear-gradient(180deg, rgb(255 255 255 / 0.22) 0%, rgb(255 252 255 / 0.10) 40%, rgb(252 250 255 / 0.24) 100%),
+			linear-gradient(180deg, rgb(255 255 255 / 0.18) 0%, rgb(255 252 255 / 0.06) 42%, rgb(252 250 255 / 0.20) 100%),
 			url("/images/drive-bg.jpg");
-		background-size: cover, cover;
-		background-position: center center, 64% 38%;
+		/* 放大一点往右下压，让人物落在面板中间、透出来能看清 */
+		background-size: 132% auto, 132% auto;
+		background-position: 71% 6%, 71% 6%;
 		background-repeat: no-repeat, no-repeat;
 		background-attachment: fixed, fixed;
 	}
@@ -1400,7 +1409,7 @@ import "@fontsource/roboto/700.css";
 	.d-top {
 		display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
 		padding: 0.85rem 1.1rem; border-radius: 1.2rem; background: var(--d-card);
-		border: 1px solid var(--d-line); box-shadow: 0 0.8rem 2rem rgb(90 70 130 / 0.08); backdrop-filter: blur(5px) saturate(1.02);
+		border: 1px solid var(--d-line); box-shadow: 0 0.8rem 2rem rgb(90 70 130 / 0.08); backdrop-filter: blur(3px) saturate(1.02);
 	}
 	.d-crumbs { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; font-size: 0.95rem; }
 	.d-crumbs button { border: 0; background: transparent; font: inherit; color: var(--d-muted); cursor: pointer; padding: 0.15rem 0.25rem; border-radius: 0.4rem; }
@@ -1452,7 +1461,7 @@ import "@fontsource/roboto/700.css";
 	.d-toolbar {
 		display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; min-height: 2.2rem;
 		padding: 0.4rem 0.75rem; font-size: 0.85rem; color: var(--d-muted);
-		border-radius: 0.9rem; background: rgb(255 255 255 / 0.42); backdrop-filter: blur(12px);
+		border-radius: 0.9rem; background: rgb(255 255 255 / 0.58); backdrop-filter: blur(12px);
 		border: 1px solid rgb(255 255 255 / 0.35);
 	}
 	.d-check-all { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; }
@@ -1461,7 +1470,7 @@ import "@fontsource/roboto/700.css";
 
 	.d-body {
 		flex: 1; min-height: 20rem; padding: 0.4rem; border-radius: 1.2rem;
-		background: var(--d-card); border: 1px solid var(--d-line); backdrop-filter: blur(5px) saturate(1.02);
+		background: var(--d-card); border: 1px solid var(--d-line); backdrop-filter: blur(3px) saturate(1.02);
 		box-shadow: 0 0.8rem 2rem rgb(90 70 130 / 0.08);
 	}
 	.d-body.dragover { border-color: var(--d-accent); background: rgb(154 123 212 / 0.08); }
@@ -1531,11 +1540,24 @@ import "@fontsource/roboto/700.css";
 	}
 
 
-	/* 手机端：fixed 背景在移动浏览器上容易掉帧，改成 scroll，并把取景抬到人物上半身 */
+	/* 手机端：换竖版插画（海边少女），fixed 背景在移动浏览器上容易掉帧，改成 scroll */
 	@media (max-width: 640px) {
 		body.drive-page {
-			background-attachment: scroll, scroll;
-			background-position: center center, 62% 30%;
+			background-image:
+				linear-gradient(180deg, rgb(255 255 255 / 0.16) 0%, rgb(255 252 255 / 0.05) 38%, rgb(252 250 255 / 0.18) 100%),
+				url("/images/drive-bg-mobile.jpg");
+			background-size: cover, cover;
+			background-position: center center, 50% 12%;
+			background-attachment: fixed, fixed;
+			background-repeat: no-repeat, no-repeat;
+			background-color: #e8dcec;
+		}
+		@media (prefers-color-scheme: dark) {
+			body.drive-page {
+				background-image:
+					linear-gradient(180deg, rgb(20 16 28 / 0.52) 0%, rgb(20 16 28 / 0.40) 38%, rgb(20 16 28 / 0.58) 100%),
+					url("/images/drive-bg-mobile-dark.jpg");
+			}
 		}
 	}
 	@media (prefers-color-scheme: dark) {
