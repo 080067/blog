@@ -140,7 +140,10 @@ function safeKey(raw: string | null, { allowEmpty = false, allowTrailingSlash = 
 	if (!key) return allowEmpty ? "" : null;
 	if (key.length > 400) return null;
 	if (key.split("/").some((part) => part === ".." || part === "." || part === "")) return null;
-	if (!/^[\p{L}\p{N}\p{Emoji} ._()\[\]&'+,@#%!~$-]+$/u.test(key.replace(/\//g, ""))) return null;
+	// 只挡掉真正会出事的东西：控制字符、反斜杠，以及会破坏路径/URL 的字符。
+	// 其余（含中日文标点「、。」「」之类）一律放行 —— 歌名里太常见了。
+	if (/[\u0000-\u001f\u007f\\:*?"<>|]/.test(key)) return null;
+	if (/^[.\s]|[.\s]$/.test(key)) return null;
 	if (key.startsWith(SYS)) return null;
 	return key + trailing;
 }

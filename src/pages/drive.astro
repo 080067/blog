@@ -751,24 +751,29 @@ import "@fontsource/roboto/700.css";
 		async preview(key: string) {
 			const file = this.state.files.find((item) => item.key === key);
 			if (!file) return;
-			const url = `/api/drive/file?key=${encodeURIComponent(key)}`;
+			// 优先用后端给的 CDN 签名直链（音视频走香港节点，能缓存、能拖动进度条）；
+			// 没有签名（没配密钥）时退回同源接口。
+			const apiUrl = `/api/drive/file?key=${encodeURIComponent(key)}`;
+			const url = file.url || apiUrl;
+			// 下载走独立路径（签名直链的 /dl/），同源接口才用 &download=1
+			const dlUrl = file.url && file.download ? file.download : `${apiUrl}&download=1`;
 			let body = "";
 			if (file.kind === "image") body = `<img src="${url}" alt="" />`;
 			else if (file.kind === "video") body = `<video src="${url}" controls autoplay></video>`;
 			else if (file.kind === "audio") body = `<div class="d-audio"><div class="d-audio-icon">♪</div><audio src="${url}" controls autoplay></audio></div>`;
 			else if (file.kind === "pdf") body = `<iframe src="${url}" title="PDF"></iframe>`;
 			else if (file.kind === "text") {
-				const res = await fetch(url, { credentials: "same-origin" });
+				const res = await fetch(apiUrl, { credentials: "same-origin" });
 				const text = await res.text();
 				body = `<pre class="d-text">${escapeHtml(text.slice(0, 200000))}</pre>`;
 			} else {
-				body = `<div class="d-no-preview"><p>这种格式没法在线预览</p><a class="d-btn d-btn-primary" href="${url}&download=1">下载文件</a></div>`;
+				body = `<div class="d-no-preview"><p>这种格式没法在线预览</p><a class="d-btn d-btn-primary" href="${dlUrl}">下载文件</a></div>`;
 			}
 			this.openModal(`
 				<div class="d-modal-head">
 					<strong>${escapeHtml(file.name)}</strong>
 					<div>
-						<a class="d-btn" href="${url}&download=1">下载</a>
+						<a class="d-btn" href="${dlUrl}">下载</a>
 						<button class="d-icon-btn" data-act="close-modal">✕</button>
 					</div>
 				</div>
