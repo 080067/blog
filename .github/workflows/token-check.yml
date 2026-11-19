@@ -1,0 +1,21 @@
+name: Diagnose Cloudflare token
+
+# 临时诊断：只打印 API 返回，不打印令牌本身。
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: verify
+        run: |
+          echo "== /user/tokens/verify =="
+          curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" | head -c 600
+          echo
+          echo "== /accounts =="
+          curl -s "https://api.cloudflare.com/client/v4/accounts" -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" | head -c 600
+          echo
+          echo "== /accounts/aa6bddf851e287584bf1562a717e9d49/pages/projects =="
+          curl -s "https://api.cloudflare.com/client/v4/accounts/aa6bddf851e287584bf1562a717e9d49/pages/projects" -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" | head -c 600
+          echo
