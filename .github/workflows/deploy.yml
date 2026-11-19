@@ -1,0 +1,48 @@
+name: Deploy to Cloudflare Pages
+
+# 后台保存文章时，Pages Functions 会把改动提交到 main。
+# 这个工作流负责：收到推送 → 构建 → 部署，前端几分钟内自动更新。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.14.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build site
+        run: pnpm build
+
+      - name: Rewrite asset URLs to CDN
+        run: node scripts/cdn-rewrite.mjs dist "https://cdn.nihilism.cloud"
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: aa6bddf851e287584bf1562a717e9d49
+          command: pages deploy dist --project-name=39-blog --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
